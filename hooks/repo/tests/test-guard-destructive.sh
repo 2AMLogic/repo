@@ -8177,7 +8177,9 @@ CC_MSG_ENV=()
 cc_msg() {  # <desc> <cmd> <cwd> <grep -F needle>...
     local d="$1" cmd="$2" cwd="$3"; shift 3
     TOTAL=$((TOTAL + 1)); local out reason ok=1 n
-    out=$(cc_run "$cmd" "$cwd" "${CC_MSG_ENV[@]}"); reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
+    # bash < 4.4 aborts on "${arr[@]}" with the array empty under set -u, so
+    # guard the expansion the same way the env-assignment sites above do.
+    out=$(cc_run "$cmd" "$cwd" ${CC_MSG_ENV[@]+"${CC_MSG_ENV[@]}"}); reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
     for n in "$@"; do grep -qF -- "$n" <<<"$reason" || ok=0; done
     if [[ $ok -eq 1 && -n "$reason" ]]; then
         PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: $d"
