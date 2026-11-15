@@ -2895,38 +2895,101 @@ writeback_instance_id() {  # <instance-id>
 REPO_REMOTE_SSH_LOCK_TIMEOUT="${REPO_REMOTE_SSH_LOCK_TIMEOUT:-15}"
 REPO_REMOTE_SSH_LOCK_POLL_INTERVAL="${REPO_REMOTE_SSH_LOCK_POLL_INTERVAL:-1}"
 
-# acquire_ssh_alias_lock <cfg> -- atomically creates "<cfg>.lock" (mkdir),
-# retrying until REPO_REMOTE_SSH_LOCK_TIMEOUT elapses. A lock left behind by a
-# process that no longer exists (stale, e.g. killed mid-write) is cleared once
-# and retried. Fails LOUDLY (die, non-zero exit) on timeout rather than
-# hanging forever or silently skipping the write.
+# acquire_ssh_alias_lock <cfg> -- atomically creates "<cfg>.lock" (a symlink
+# whose target is the owning pid) and retries until
+# REPO_REMOTE_SSH_LOCK_TIMEOUT elapses. A lock left behind by a process that
+# no longer exists (stale, e.g. killed mid-write) is cleared once and
+# retried. Fails LOUDLY (die, non-zero exit) on timeout rather than hanging
+# forever or silently skipping the write.
+#
+# repo#815: the lock is a SYMLINK, not a directory, on purpose. The previous
+# design mkdir'd a lock dir and only THEN wrote owner.pid into it, so every
+# lock passed through an unregistered instant: a waiter executing a stale
+# break in that window could move (or delete) a creator's still-nameless
+# dir, leaving unregistered "holders", nested lock dirs, and eventually a
+# wedged path whose dir had no owner.pid at all -- unbreakable (empty pid
+# reads were skipped) and unownable (the echo had already failed) -- which
+# made every later acquire time out. A symlink lock is born fully
+# registered: `ln -s <pid>` is atomic and fails if anything is already at
+# the path, so there is no instant at which the lock exists without an
+# owner, and a dead-owner lock is always cleanly breakable.
 acquire_ssh_alias_lock() {  # <cfg>
   local cfg="$1" lock="$1.lock"
   local deadline=$(( $(date +%s) + REPO_REMOTE_SSH_LOCK_TIMEOUT ))
   local stale_retry_done=0
   while true; do
-    if mkdir "$lock" 2>/dev/null; then
-      echo "$$" >"$lock/owner.pid" 2>/dev/null || true
+    if ln -s "$$" "$lock" 2>/dev/null; then
       return 0
     fi
 
     local owner_pid=""
-    [[ -f "$lock/owner.pid" ]] && owner_pid="$(cat "$lock/owner.pid" 2>/dev/null || true)"
+    owner_pid="$(readlink "$lock" 2>/dev/null || true)"
     if [[ -n "$owner_pid" ]] && [[ "$stale_retry_done" -eq 0 ]] && ! kill -0 "$owner_pid" 2>/dev/null; then
-      rm -rf "$lock" 2>/dev/null || true
+      # repo#815: the break must be SINGLE-WINNER and IDENTITY-VERIFIED.
+      # A bare `rm -f` lets two waiters that both judge the same stale
+      # lock dead each remove the path -- and the second removal deletes
+      # whatever the FIRST waiter installed there in between (its live
+      # lock), so both hold the lock and one written stanza is silently
+      # lost. `mv` is an atomic rename, so exactly one waiter can
+      # quarantine what is at the path; but a judgement can be stale by
+      # the time it acts (another acquirer may have installed a lock
+      # between our readlink and our mv), so the quarantined symlink is
+      # deleted only if its owner is STILL dead -- anything alive goes
+      # straight back where it came from. (mv onto an existing symlink
+      # replaces it; the displaced acquirer detects the swap via
+      # ssh_alias_lock_held_by_me before writing and fails loudly instead
+      # of writing unprotected, so no lock is ever held by two writers
+      # silently.)
+      local stale_target="$lock.stale.$$"
+      if mv "$lock" "$stale_target" 2>/dev/null; then
+        local moved_pid=""
+        moved_pid="$(readlink "$stale_target" 2>/dev/null || true)"
+        if [[ -n "$moved_pid" ]] && ! kill -0 "$moved_pid" 2>/dev/null; then
+          rm -f "$stale_target" 2>/dev/null || true
+        else
+          # A live owner's lock -- put it back. (If a third waiter
+          # installed over the empty path meanwhile, this mv replaces its
+          # symlink; the displaced waiter detects that via
+          # ssh_alias_lock_held_by_me before writing and refuses loudly.)
+          mv "$stale_target" "$lock" 2>/dev/null || rm -f "$stale_target" 2>/dev/null || true
+        fi
+      fi
       stale_retry_done=1
       continue
     fi
 
     if [[ $(date +%s) -ge $deadline ]]; then
-      die 4 "timed out after ${REPO_REMOTE_SSH_LOCK_TIMEOUT}s waiting for the SSH config lock (${lock}) -- a concurrent repo-remote invocation may be writing ${cfg}; remove the lock dir manually if no such process is actually running"
+      die 4 "timed out after ${REPO_REMOTE_SSH_LOCK_TIMEOUT}s waiting for the SSH config lock (${lock}) -- a concurrent repo-remote invocation may be writing ${cfg}; remove the lock manually if no such process is actually running"
     fi
     sleep "$REPO_REMOTE_SSH_LOCK_POLL_INTERVAL"
   done
 }
 
 release_ssh_alias_lock() {  # <cfg>
-  rm -rf "$1.lock" 2>/dev/null || true
+  # repo#815: OWNED release -- only the process whose pid is recorded as the
+  # symlink target (written atomically by acquire_ssh_alias_lock) may remove
+  # the lock. A bare `rm -f "$1.lock"` deletes whichever lock is CURRENTLY
+  # at the path, which after a stale-break race can be another acquirer's
+  # freshly installed lock -- removing it re-opens the two-holder window
+  # this lock exists to close.
+  local lock="$1.lock" owner_pid=""
+  owner_pid="$(readlink "$lock" 2>/dev/null || true)"
+  if [[ -n "$owner_pid" && "$owner_pid" == "$$" ]]; then
+    rm -f "$lock" 2>/dev/null || true
+  fi
+}
+
+# ssh_alias_lock_held_by_me <cfg> -- true when the lock at "<cfg>.lock" still
+# records THIS process as its owner, i.e. the lock we acquired is still the
+# one at the path. repo#815 backstop: a waiter's stale-break can in a
+# narrow window quarantine a live holder's lock (it is restored by mv back,
+# but a third acquirer may have installed a lock over the empty path
+# meanwhile, and the restore replaces it), leaving the original holder
+# working without its lock. Rather than write anyway -- the silent lost
+# update this lock exists to prevent -- the holder re-validates immediately
+# before installing its temp file and refuses loudly when dispossessed.
+ssh_alias_lock_held_by_me() {  # <cfg>
+  [[ "$(readlink "$1.lock" 2>/dev/null || true)" == "$$" ]]
 }
 
 # Write/refresh the one-word SSH alias so the connection is `ssh repo-remote-<name>`.
@@ -3024,6 +3087,16 @@ write_ssh_alias() {  # <ip | instance-id> [ssm-region]
     return 1
   fi
 
+  # repo#815 backstop: the lock we acquired must still be ours right before
+  # the atomic install. Dispossessed => refuse loudly, never write unlocked.
+  if ! ssh_alias_lock_held_by_me "$cfg"; then
+    log "lost the SSH config lock for '${alias}' before installing it (another writer took over) -- leaving ${cfg} untouched; retry the write"
+    rm -f "$tmp"
+    release_ssh_alias_lock "$cfg"
+    printf '%s' "$alias"
+    return 1
+  fi
+
   mv "$tmp" "$cfg"
   chmod 600 "$cfg" 2>/dev/null || true
   release_ssh_alias_lock "$cfg"
@@ -3096,6 +3169,13 @@ remove_ssh_alias_blocks() {  # <alias>...
     return 1
   fi
   chmod --reference="$cfg" "$tmp" 2>/dev/null || chmod 600 "$tmp" 2>/dev/null || true
+  # repo#815 backstop: same holder re-validation as write_ssh_alias.
+  if ! ssh_alias_lock_held_by_me "$cfg"; then
+    log "lost the SSH config lock before installing the removal (another writer took over) -- leaving ${cfg} untouched; retry the removal"
+    rm -f "$tmp"
+    release_ssh_alias_lock "$cfg"
+    return 1
+  fi
   mv "$tmp" "$cfg"
   release_ssh_alias_lock "$cfg"
   while IFS= read -r h; do
