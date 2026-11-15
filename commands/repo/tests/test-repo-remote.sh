@@ -2161,7 +2161,11 @@ CONC_A_ERR="$SCRATCH/concurrent_alpha.stderr"
 CONC_B_ERR="$SCRATCH/concurrent_beta.stderr"
 CONC_A_RC_FILE="$SCRATCH/concurrent_alpha.rc"
 CONC_B_RC_FILE="$SCRATCH/concurrent_beta.rc"
-rm -f "$CONC_CFG" "$CONC_CFG.lock" "$CONC_A_ERR" "$CONC_B_ERR" "$CONC_A_RC_FILE" "$CONC_B_RC_FILE"
+# repo#815: this reset must remove a prior lock of ANY vintage -- the
+# symlink lock, the old mkdir'd lock dir, or a leftover quarantine dir
+# -- and `rm -f` silently fails on all of those that are directories.
+rm -rf "$CONC_CFG.lock"
+rm -f "$CONC_CFG" "$CONC_A_ERR" "$CONC_B_ERR" "$CONC_A_RC_FILE" "$CONC_B_RC_FILE"
 (
   REPO_REMOTE_SSH_CONFIG="$CONC_CFG" bash -c "
     source '$RR'
@@ -2200,7 +2204,168 @@ if [[ "$CONC_OUT" == *"Host repo-remote-beta"* ]]; then
 else
   no "concurrent write_ssh_alias: second writer's block survives" "missing [Host repo-remote-beta]; $(conc_diag)"
 fi
-assert_eq "concurrent write_ssh_alias: no leftover lock dir" "" "$( [[ -e "$CONC_CFG.lock" ]] && echo present )"
+assert_eq "concurrent write_ssh_alias: no leftover lock" "" "$( [[ -e "$CONC_CFG.lock" || -L "$CONC_CFG.lock" ]] && echo present )"
+
+# ---------------------------------------------------------------------------
+# repo#815 regression: two waiters must not both win the same stale lock.
+#
+# MEASURED mechanism (local, ns-timestamped instrumented traces, see PR):
+# the old mkdir'd-dir lock let two waiters that judged the same stale lock
+# dead each remove the path, the second removal deleting the FIRST waiter's
+# freshly acquired live lock -- both then held the lock, both completed with
+# rc 0, and one written stanza silently vanished: exactly the CI signature
+# (both writers exit 0 while "first/second writer's block survives" fails).
+# The fix makes the lock a pid symlink (born fully registered, so there is
+# no unregistered instant to interfere with), makes the stale break a
+# single-winner atomic rename that deletes a quarantined lock only while its
+# owner is still dead, makes release owned, and makes each writer
+# re-validate ownership before installing its config.
+#
+# Detection needs several waiters: with two waiters the old race window is
+# microsecond-wide (measured: ~0/4 seeded rounds), but with 10 waiters
+# seeded on one stale lock the old code produced overlapping holders in
+# ~2/3 of rounds (measured 20/30 locally), so three rounds give ~96%
+# pre-fix detection while staying green deterministically post-fix.
+# Hold/poll are kept tiny (50ms hold, 10ms poll) so a round costs ~1s
+# serialized.
+CONC2_CFG="$SCRATCH/concurrent2_ssh_config"
+CONC2_LOCK="$CONC2_CFG.lock"
+CONC2_DIR="$SCRATCH/conc2"
+# A definitely-dead pid for the stale seed: spawn and reap it.
+sleep 0 & CONC2_DEAD_PID=$!
+wait "$CONC2_DEAD_PID" 2>/dev/null
+conc2_round() {  # <round> -- seed one stale lock, race 10 waiters at it
+  local r="$1" i p rc w_rc
+  rm -rf "$CONC2_DIR"
+  mkdir -p "$CONC2_DIR"
+  rm -rf "$CONC2_LOCK"
+  ln -s "$CONC2_DEAD_PID" "$CONC2_LOCK"   # the stale seed (pid symlink)
+  local pids=()
+  for i in $(seq 1 10); do
+    REPO_REMOTE_SSH_CONFIG="$CONC2_CFG" REPO_REMOTE_SSH_LOCK_POLL_INTERVAL=0.01 bash -c "
+      source '$RR'
+      acquire_ssh_alias_lock '$CONC2_CFG'
+      printf 'acq %s\n' \$(date +%s%N)
+      sleep 0.05
+      if ssh_alias_lock_held_by_me '$CONC2_CFG'; then
+        printf 'rel %s\n' \$(date +%s%N)
+        release_ssh_alias_lock '$CONC2_CFG'
+        printf 'held\n'
+      else
+        # Dispossessed mid-hold: production's write_ssh_alias re-validates
+        # ownership right before installing and refuses loudly (rc 1), so a
+        # dispossessed writer cannot silently lose another writer's stanza.
+        # Here we record the detection and never report a hold interval.
+        printf 'dispossessed\n'
+        release_ssh_alias_lock '$CONC2_CFG'
+      fi
+    " >"$CONC2_DIR/w$i.intervals" 2>"$CONC2_DIR/w$i.err" &
+    pids+=($!)
+  done
+  rc=0
+  for p in "${pids[@]}"; do
+    # repo#818: capture the wait status BEFORE clobbering $? with rc=1 --
+    # "$?" inside the braces is the status of the last assignment, so the
+    # diagnostic always reported "exited 0" even when the real code was 4.
+    wait "$p" || { w_rc=$?; rc=1; printf 'writer pid %s exited %s\n' "$p" "$w_rc" >>"$CONC2_DIR/rc-errors"; }
+  done
+  # Pairwise EFFECTIVE hold-interval overlap check: only waiters that still
+  # pass ownership validation count as holders (a dispossessed waiter is
+  # detected via ssh_alias_lock_held_by_me and, in production, refuses to
+  # write -- it cannot silently lose another writer's stanza). If two
+  # effective holders ever overlap, the lock failed its one job (repo#815).
+  local -a ACQ REL
+  local held=0 disp=0
+  for i in $(seq 1 10); do
+    if grep -q '^dispossessed$' "$CONC2_DIR/w$i.intervals" 2>/dev/null; then
+      disp=$((disp + 1))
+      ACQ[i]=0; REL[i]=0
+    else
+      held=$((held + 1))
+      read -r ACQ[i] REL[i] < <(awk '/^acq/{a=$2}/^rel/{r=$2}END{print a+0, r+0}' "$CONC2_DIR/w$i.intervals" 2>/dev/null)
+    fi
+  done
+  local s e ov_i=0 ov_j=0
+  for ((i = 1; i <= 10; i++)); do for ((p = i + 1; p <= 10; p++)); do
+    s=$(( ACQ[i] > ACQ[p] ? ACQ[i] : ACQ[p] ))
+    e=$(( REL[i] < REL[p] ? REL[i] : REL[p] ))
+    if (( s < e )); then ov_i=$i; ov_j=$p; fi
+  done; done
+  if (( rc != 0 )); then
+    no "concurrent stale-lock acquire (round $r/3): all waiters exit 0" \
+      "rc failure; $(cat "$CONC2_DIR/rc-errors" 2>/dev/null) err samples: $(head -c 300 "$CONC2_DIR"/w*.err 2>/dev/null | tr '\n' ' ')"
+    return 1
+  fi
+  if (( ov_i != 0 )); then
+    no "concurrent stale-lock acquire (round $r/3): effective hold intervals never overlap (no two holders)" \
+      "overlap w${ov_i}=[${ACQ[ov_i]},${REL[ov_i]}] w${ov_j}=[${ACQ[ov_j]},${REL[ov_j]}] (repo#815 two-holder race)"
+    return 1
+  fi
+  if (( held < 6 || disp > 4 )); then
+    no "concurrent stale-lock acquire (round $r/3): waiters either hold validated or are detected as dispossessed" \
+      "held=$held dispossessed=$disp (expected >=6 held, <=4 dispossessed; repo#815)"
+    return 1
+  fi
+  return 0
+}
+CONC2_FAILS=0
+for CONC2_ROUND in 1 2 3; do
+  conc2_round "$CONC2_ROUND" || CONC2_FAILS=$((CONC2_FAILS + 1))
+done
+if (( CONC2_FAILS == 0 )); then
+  ok "concurrent stale-lock acquire: serialized across 3 seeded rounds (3/3)"
+fi
+assert_eq "concurrent stale-lock acquire: stale seed cleared, no leftover lock" "" \
+  "$( [[ -e "$CONC2_LOCK" || -L "$CONC2_LOCK" ]] && echo present )"
+
+# ---------------------------------------------------------------------------
+# repo#818 regression: a LEGACY lock directory must not defeat the lock.
+#
+# MEASURED (PR#818 review, round 2): the pre-#815 mkdir'd lock dir is exactly
+# what the replaced code leaves behind when a writer dies between mkdir and
+# release. Against a directory, `ln -s` creates "$lock/$$" INSIDE it and
+# exits 0, so acquire returned success while holding nothing: every write
+# failed rc 1 ("another writer took over") and the config was never written,
+# and nothing could clear the path (release's readlink reads an empty owner
+# on a directory) -- a permanent wedge, and a regression against the code
+# being replaced, which recovered from this same input. The acquire path must
+# break the residue once (same single-winner quarantine as the symlink stale
+# break) and complete the write.
+LEGACY_CFG="$SCRATCH/legacy_lock_ssh_config"
+LEGACY_LOCK="$LEGACY_CFG.lock"
+# Case 1: dead owner.pid recorded (the seeded reproduction: writer killed
+# between mkdir and release, plus the stray in-dir symlinks the broken code
+# litters -- measured residue: `1682843 1682906 1682960 owner.pid`).
+rm -rf "$LEGACY_LOCK"
+mkdir -p "$LEGACY_LOCK"
+printf '%s\n' "$CONC2_DEAD_PID" >"$LEGACY_LOCK/owner.pid"
+ln -s 424242 "$LEGACY_LOCK/1682843" 2>/dev/null || true
+LEGACY1_OUT="$(REPO_REMOTE_SSH_CONFIG="$LEGACY_CFG" bash -c "
+  source '$RR'
+  NAME=legacylock1
+  write_ssh_alias '10.0.0.41'
+" 2>&1)"
+LEGACY1_RC=$?
+assert_eq "legacy lock dir (dead owner.pid): write_ssh_alias succeeds" "0" "$LEGACY1_RC"
+assert_contains "legacy lock dir (dead owner.pid): stanza actually written" \
+  "$(cat "$LEGACY_CFG" 2>/dev/null || true)" "Host repo-remote-legacylock1"
+assert_eq "legacy lock dir (dead owner.pid): lock path and quarantine cleared" "" \
+  "$(find "$SCRATCH" -maxdepth 1 -name 'legacy_lock_ssh_config.lock*' 2>/dev/null | head -n 1)"
+# Case 2: nameless legacy dir (no owner.pid -- the state the old code's
+# empty-pid guard skipped, wedging every later acquire with die 4).
+rm -rf "$LEGACY_LOCK" "$LEGACY_CFG"
+mkdir -p "$LEGACY_LOCK"
+LEGACY2_OUT="$(REPO_REMOTE_SSH_CONFIG="$LEGACY_CFG" bash -c "
+  source '$RR'
+  NAME=legacylock2
+  write_ssh_alias '10.0.0.42'
+" 2>&1)"
+LEGACY2_RC=$?
+assert_eq "legacy lock dir (no owner.pid): write_ssh_alias succeeds" "0" "$LEGACY2_RC"
+assert_contains "legacy lock dir (no owner.pid): stanza actually written" \
+  "$(cat "$LEGACY_CFG" 2>/dev/null || true)" "Host repo-remote-legacylock2"
+assert_eq "legacy lock dir (no owner.pid): lock path and quarantine cleared" "" \
+  "$(find "$SCRATCH" -maxdepth 1 -name 'legacy_lock_ssh_config.lock*' 2>/dev/null | head -n 1)"
 
 # The temp file used for the read-modify-write swap must be created alongside
 # the target config (same directory as $cfg), not under the default $TMPDIR --
