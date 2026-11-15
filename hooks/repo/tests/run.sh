@@ -1033,6 +1033,10 @@ else
     SF_STATUS=$?
     SF_PASS="$(suite_count Passed "$SF_OUT")"
     SF_FAIL="$(suite_count Failed "$SF_OUT")"
+    # A whole-suite macOS skip (the suite's SKIP (macOS) block, #805 AC3) is
+    # neither pass nor fail — surface it in the breakdown note instead.
+    SF_NOTE="fork-network sweep"
+    printf '%s\n' "$SF_OUT" | grep -q '^SKIP (macOS)' && SF_NOTE+=" — macOS whole-suite skip active"
     if ! [[ "$SF_PASS" =~ ^[0-9]+$ && "$SF_FAIL" =~ ^[0-9]+$ ]]; then
         SF_PASS=0
         SF_FAIL=1
@@ -1049,7 +1053,7 @@ else
     fi
     PASS=$((PASS + SF_PASS))
     FAIL=$((FAIL + SF_FAIL))
-    record_suite "test-repo-scrub-forks.sh" "$SF_PASS" "$SF_FAIL" "fork-network sweep"
+    record_suite "test-repo-scrub-forks.sh" "$SF_PASS" "$SF_FAIL" "$SF_NOTE"
 fi
 
 # /repo:scrub's prose contract (repo#174/#186), its /repo:all integration, and
