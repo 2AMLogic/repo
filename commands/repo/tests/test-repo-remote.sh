@@ -2128,6 +2128,53 @@ write_repo_env "REPO_REMOTE_INSTANCE_TYPE=m5.2xlarge"
 
 # ---------------------------------------------------------------------------
 echo ""
+echo "-- gcp_up reports a rejected SSH alias write (repo#824) --"
+# ---------------------------------------------------------------------------
+# repo#824: gcp_up() ignored write_ssh_alias()'s exit status, so a rejected
+# alias write was reported as a plain successful up while the SSH config was
+# left untouched. Mirror aws_up()'s non-fatal direct-IP shape: log loudly,
+# still exit 0 -- the instance really is up, only the alias is missing.
+# MOCK_SSH_G_FAIL fails only write_ssh_alias()'s `ssh -G` parse check, so
+# this isolates the rejected-alias branch from everything else.
+GCPREJ_CFG="$SCRATCH/gcp_reject_ssh_config"
+rm -f "$GCPREJ_CFG" "$GCPREJ_CFG.lock"
+printf 'Host repo-remote-preexisting\n    HostName 203.0.113.80\n    User ubuntu\n' >"$GCPREJ_CFG"
+GCPREJ_BEFORE="$(cat "$GCPREJ_CFG")"
+write_repo_env "${GCP_ENV[@]}"
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPREJ_CFG" MOCK_GCP_IP=203.0.113.81 MOCK_SSH_G_FAIL=1 -- up --yes --json
+assert_eq   "gcp: up with a rejected SSH alias write still succeeds (non-fatal)" "0" "$RR_RC"
+assert_contains "gcp: up reports that the SSH alias write was rejected" \
+  "$RR_ERR" "SSH alias write for repo-remote-myrepo was rejected"
+assert_contains "gcp: the rejection message names the alias the user would have used" \
+  "$RR_ERR" "ssh repo-remote-myrepo"
+assert_eq   "gcp: a rejected alias write leaves the pre-existing SSH config untouched" \
+  "$GCPREJ_BEFORE" "$(cat "$GCPREJ_CFG")"
+assert_eq   "gcp: a rejected alias write leaves no lock dir behind" "" \
+  "$( [[ -e "$GCPREJ_CFG.lock" ]] && echo present )"
+
+# repo#824 test-plan edge: an empty/None IP is rc 0 with no stanza -- a
+# deliberate skip, not a rejection -- so it must not log the rejected-alias
+# message.
+write_repo_env "${GCP_ENV[@]}"
+run_rr MOCK_GCP_IP=None -- up --yes --json
+assert_eq   "gcp: a None IP (no stanza) still exits 0" "0" "$RR_RC"
+assert_not_contains "gcp: a None IP is not reported as a rejected alias write" \
+  "$RR_ERR" "was rejected"
+
+# The success path is unchanged: the stanza lands, no rejection is logged.
+write_repo_env "${GCP_ENV[@]}"
+GCPREJ_OK_CFG="$SCRATCH/gcp_ok_ssh_config"
+rm -f "$GCPREJ_OK_CFG" "$GCPREJ_OK_CFG.lock"
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPREJ_OK_CFG" MOCK_GCP_IP=203.0.113.82 -- up --yes --json
+assert_eq   "gcp: successful alias write still exits 0" "0" "$RR_RC"
+assert_not_contains "gcp: success logs no rejection" "$RR_ERR" "was rejected"
+assert_contains "gcp: success writes the HostName stanza" \
+  "$(cat "$GCPREJ_OK_CFG" 2>/dev/null)" "HostName 203.0.113.82"
+
+write_repo_env "REPO_REMOTE_INSTANCE_TYPE=m5.2xlarge"
+
+# ---------------------------------------------------------------------------
+echo ""
 echo "-- auth failure stops loudly, no fallback --"
 # ---------------------------------------------------------------------------
 run_rr MOCK_AWS_AUTH_FAIL=1 MOCK_AWS_STATE=None -- up --yes --json

@@ -2753,7 +2753,10 @@ gcp_up() {
     --format='value(networkInterfaces[0].accessConfigs[0].natIP)' 2>/dev/null || true)"
 
   writeback_instance_id "$vm"
-  local alias; alias="$(write_ssh_alias "$ip")"
+  local alias
+  if ! alias="$(write_ssh_alias "$ip")"; then
+    log "SSH alias write for ${alias} was rejected (see error above); the SSH config was left untouched -- ssh ${alias} (or git-over-SSH via it) will not work until this is retried"
+  fi
   emit_up_result "$vm" "$ip" "$alias" "$reused"
 }
 
