@@ -48,25 +48,6 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 1
 fi
 
-# #805 AC3, explicit macOS skip: this suite drives the INSTALLED
-# scripts/repo/repo-scrub-forks.sh, which aborts under stock macOS /bin/bash
-# 3.2 on the first fingerprint hit — bash < 4.4 treats "${FP_FULLNAME[@]}" on
-# an empty array as unbound under set -u (repo-scrub-forks.sh:265). That is a
-# real product defect in installed surface, not a test-portability bug, so it
-# is fixed out-of-band per #805's out-of-scope rule; tracked in #814. Drop
-# this skip when #814 lands.
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    echo "SKIP (macOS): repo-scrub-forks.sh:265 expands empty FP_FULLNAME under bash 3.2 set -u"
-    echo "  (\"\${FP_FULLNAME[@]}: unbound variable\" aborts the sweep) — product defect, tracked in #814"
-    echo "========================================="
-    echo "  Total:  0"
-    echo "  Passed: 0"
-    echo "  Failed: 0"
-    echo "  Skipped: whole suite (see SKIP lines above)"
-    echo "========================================="
-    exit 0
-fi
-
 SCRATCH="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$SCRATCH"' EXIT
 
