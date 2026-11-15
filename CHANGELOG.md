@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`/repo:org-policy` no longer claims "No change was made" for a 403 right after repository creation (#811).** When `apply` creates `OWNER/.github` and the follow-up metadata read then answers `HTTP 403` (the token's access changed mid-run), the error now says the repository was just created and the policy PR was not published, instead of repeating the plan-phase "No change was made" message. The `plan`-phase 403 message is unchanged.
+
 - **`/repo:scrub`'s fork sweep no longer aborts under stock macOS bash 3.2 (#814).** On the first fingerprint-search hit, `repo-scrub-forks.sh` expanded the still-empty `FP_FULLNAME` array — bash < 4.4 treats `"${FP_FULLNAME[@]}"` on an empty array as an unbound variable under `set -u`, so the whole sweep exited 1 mid-run. The expansion now uses the `+` default guard (`${FP_FULLNAME[@]+"${FP_FULLNAME[@]}"}`, the idiom `repo-remote.sh` already uses). The suite's whole-suite macOS skip (#805 AC3) is dropped, so `test-repo-scrub-forks.sh` runs on the macOS CI job again.
 
 - **`/repo:org-policy` names a 403 on the target policy repository (#803).** When GitHub answers `HTTP 403` for `OWNER/.github`, `plan` and `apply` now exit nonzero with a message saying access was refused, the repository is not known to be absent, and no change was made, instead of the raw `GitHub GET … failed` text. A 403 still never takes the missing-repository path; 404 handling is unchanged. New tests in `test_org_policy.py`.
