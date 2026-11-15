@@ -2283,7 +2283,7 @@ conc2_round() {  # <round> -- seed one stale lock, race 10 waiters at it
     fi
   done
   local s e ov_i=0 ov_j=0
-  for i in $(seq 1 10); do for p in $(seq $((i + 1)) 10); do
+  for ((i = 1; i <= 10; i++)); do for ((p = i + 1; p <= 10; p++)); do
     s=$(( ACQ[i] > ACQ[p] ? ACQ[i] : ACQ[p] ))
     e=$(( REL[i] < REL[p] ? REL[i] : REL[p] ))
     if (( s < e )); then ov_i=$i; ov_j=$p; fi
