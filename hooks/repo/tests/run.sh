@@ -51,7 +51,8 @@
 # commands/repo/tests/test-deps-dependabot-alerts.sh,
 # commands/repo/tests/test-deps-no-ci.sh,
 # commands/repo/tests/test-handoff-preflight.sh,
-# commands/repo/tests/test-update-tools-squad.sh, and
+# commands/repo/tests/test-update-tools-squad.sh,
+# commands/repo/tests/test-run-sh-failure-output.sh, and
 # commands/repo/tests/test_optimize_ci.py.
 #
 # A completeness check at the end fails the run for any test-*.sh / test_*.py under
@@ -1988,6 +1989,44 @@ else
     PASS=$((PASS + GF_PASS))
     FAIL=$((FAIL + GF_FAIL))
     record_suite "test-git-fixture-hermeticity.sh" "$GF_PASS" "$GF_FAIL" "git-fixture hermeticity (repo#518)"
+fi
+
+# run.sh's own output-rendering helpers (print_failures / strip_ansi /
+# suite_count, repo#820): green CI never executes them — print_failures runs
+# only on a failing suite, and a regression there would silently strip the
+# failure diagnostics repo#817 restored. This delegated suite extracts the
+# helpers from this file itself and feeds them fixtures built from the real
+# suite printers, so the rendering contracts stay pinned. Also the only place
+# the macOS/BSD-awk CI job exercises this awk code.
+echo
+echo "-- run.sh failure-output helpers (delegated suite) --"
+FO_TEST="$TESTS_DIR/../../../commands/repo/tests/test-run-sh-failure-output.sh"
+if [[ ! -f "$FO_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-run-sh-failure-output.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-run-sh-failure-output.sh" "$FO_TEST"
+else
+    FO_OUT="$(bash "$FO_TEST" 2>&1)"
+    FO_STATUS=$?
+    FO_PASS="$(suite_count Passed "$FO_OUT")"
+    FO_FAIL="$(suite_count Failed "$FO_OUT")"
+    if ! [[ "$FO_PASS" =~ ^[0-9]+$ && "$FO_FAIL" =~ ^[0-9]+$ ]]; then
+        FO_PASS=0
+        FO_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-run-sh-failure-output.sh" "$FO_STATUS"
+        strip_ansi "$FO_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$FO_STATUS" -ne 0 || "$FO_FAIL" -ne 0 ]]; then
+        [[ "$FO_FAIL" -eq 0 ]] && FO_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-run-sh-failure-output.sh" "$FO_PASS" "$FO_FAIL" "$FO_STATUS"
+        print_failures "$FO_OUT"
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-run-sh-failure-output.sh" "$FO_PASS"
+    fi
+    PASS=$((PASS + FO_PASS))
+    FAIL=$((FAIL + FO_FAIL))
+    record_suite "test-run-sh-failure-output.sh" "$FO_PASS" "$FO_FAIL" "run.sh failure-output helpers"
 fi
 
 echo
