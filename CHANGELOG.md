@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`/repo:org-policy` no longer claims "No change was made" for a 403 right after repository creation (#811).** When `apply` creates `OWNER/.github` and the follow-up metadata read then answers `HTTP 403` (the token's access changed mid-run), the error now says the repository was just created and the policy PR was not published, instead of repeating the plan-phase "No change was made" message. The `plan`-phase 403 message is unchanged.
+
 - **`/repo:org-policy` names a 403 on the target policy repository (#803).** When GitHub answers `HTTP 403` for `OWNER/.github`, `plan` and `apply` now exit nonzero with a message saying access was refused, the repository is not known to be absent, and no change was made, instead of the raw `GitHub GET … failed` text. A 403 still never takes the missing-repository path; 404 handling is unchanged. New tests in `test_org_policy.py`.
 
 - **`$repo` is now a thin router; the `references/` copies are gone (#676, part 2).** The umbrella Codex skill no longer installs `.agents/skills/repo/references/<verb>.md`; its "Command skills" section lists the `$repo-<verb>` skills instead, and each per-command skill points at `../repo/SKILL.md` (skill-relative) for the shared safety rules. **Migration:** `install.sh` and `resync-installed.sh` delete a legacy `references/` directory once, only when `repo/SKILL.md` carries the ownership marker; an unmarked `repo/` is untouched and re-runs are idempotent. `uninstall.sh` and drift reporting no longer expect `references/`. Pins on `references/` paths must move to `.agents/skills/repo-<verb>/SKILL.md`. New `--dev` and migration tests.

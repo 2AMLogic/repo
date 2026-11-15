@@ -301,6 +301,43 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("refused access to example/.github", err.getvalue())
         self.assertEqual(self.api.writes, [])
 
+    def test_post_creation_403_says_the_repository_was_created(self):
+        # The create POST has already run when apply_plan re-reads the target,
+        # so the make_plan-era "No change was made" claim would be false there.
+        self.api.exists = False
+        plan = self.plan(create_repository="public")
+        read_target = self.api.api
+
+        def forbid_after_create(endpoint, method="GET", payload=None, missing_ok=False):
+            result = read_target(endpoint, method, payload, missing_ok)
+            if method == "POST" and urlparse(endpoint).path in ("orgs/example/repos", "user/repos"):
+                self.api.target_status = 403
+            return result
+
+        self.api.api = forbid_after_create
+        with self.assertRaisesRegex(policy.PolicyError, r"example/\.github was just created") as ctx:
+            policy.apply_plan(self.api, plan)
+        self.assertNotIn("No change was made", str(ctx.exception))
+        self.assertIn(("orgs/example/repos", "POST"), [call[:2] for call in self.api.calls])
+        self.assertEqual(self.api.calls[-1][:2], ("repos/example/.github", "GET"))
+        self.assertEqual([call for call in self.api.writes if "git/" in call[0]], [])
+
+    def test_post_creation_non_403_error_propagates_unchanged(self):
+        self.api.exists = False
+        plan = self.plan(create_repository="public")
+        read_target = self.api.api
+
+        def fail_after_create(endpoint, method="GET", payload=None, missing_ok=False):
+            result = read_target(endpoint, method, payload, missing_ok)
+            if method == "POST" and urlparse(endpoint).path in ("orgs/example/repos", "user/repos"):
+                self.api.target_status = 500
+            return result
+
+        self.api.api = fail_after_create
+        with self.assertRaisesRegex(policy.PolicyError, r"HTTP 500") as ctx:
+            policy.apply_plan(self.api, plan)
+        self.assertNotIn("just created", str(ctx.exception))
+
     def test_admin_on_visible_sibling_reports_target_as_likely_absent(self):
         self.api.exists = False
         self.api.client_admin = True
