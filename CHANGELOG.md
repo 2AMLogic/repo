@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`/repo:scrub`'s fork sweep no longer aborts under stock macOS bash 3.2 (#814).** On the first fingerprint-search hit, `repo-scrub-forks.sh` expanded the still-empty `FP_FULLNAME` array — bash < 4.4 treats `"${FP_FULLNAME[@]}"` on an empty array as an unbound variable under `set -u`, so the whole sweep exited 1 mid-run. The expansion now uses the `+` default guard (`${FP_FULLNAME[@]+"${FP_FULLNAME[@]}"}`, the idiom `repo-remote.sh` already uses). The suite's whole-suite macOS skip (#805 AC3) is dropped, so `test-repo-scrub-forks.sh` runs on the macOS CI job again.
+
 - **`/repo:org-policy` names a 403 on the target policy repository (#803).** When GitHub answers `HTTP 403` for `OWNER/.github`, `plan` and `apply` now exit nonzero with a message saying access was refused, the repository is not known to be absent, and no change was made, instead of the raw `GitHub GET … failed` text. A 403 still never takes the missing-repository path; 404 handling is unchanged. New tests in `test_org_policy.py`.
 
 - **`$repo` is now a thin router; the `references/` copies are gone (#676, part 2).** The umbrella Codex skill no longer installs `.agents/skills/repo/references/<verb>.md`; its "Command skills" section lists the `$repo-<verb>` skills instead, and each per-command skill points at `../repo/SKILL.md` (skill-relative) for the shared safety rules. **Migration:** `install.sh` and `resync-installed.sh` delete a legacy `references/` directory once, only when `repo/SKILL.md` carries the ownership marker; an unmarked `repo/` is untouched and re-runs are idempotent. `uninstall.sh` and drift reporting no longer expect `references/`. Pins on `references/` paths must move to `.agents/skills/repo-<verb>/SKILL.md`. New `--dev` and migration tests.
