@@ -2899,8 +2899,9 @@ REPO_REMOTE_SSH_LOCK_POLL_INTERVAL="${REPO_REMOTE_SSH_LOCK_POLL_INTERVAL:-1}"
 # whose target is the owning pid) and retries until
 # REPO_REMOTE_SSH_LOCK_TIMEOUT elapses. A lock left behind by a process that
 # no longer exists (stale, e.g. killed mid-write) is cleared once and
-# retried. Fails LOUDLY (die, non-zero exit) on timeout rather than hanging
-# forever or silently skipping the write.
+# retried, as is any non-symlink residue at the path (a legacy pre-#815
+# mkdir'd lock dir -- see the loop body). Fails LOUDLY (die, non-zero exit)
+# on timeout rather than hanging forever or silently skipping the write.
 #
 # repo#815: the lock is a SYMLINK, not a directory, on purpose. The previous
 # design mkdir'd a lock dir and only THEN wrote owner.pid into it, so every
@@ -2917,8 +2918,50 @@ acquire_ssh_alias_lock() {  # <cfg>
   local cfg="$1" lock="$1.lock"
   local deadline=$(( $(date +%s) + REPO_REMOTE_SSH_LOCK_TIMEOUT ))
   local stale_retry_done=0
+  local legacy_break_done=0
   while true; do
-    if ln -s "$$" "$lock" 2>/dev/null; then
+    # repo#818: any NON-symlink at the lock path (a legacy pre-#815 mkdir'd
+    # lock dir -- exactly what the replaced code leaves behind when a writer
+    # dies between mkdir and release -- or any other residue) must be broken
+    # explicitly: against a directory `ln -s` creates "$lock/$$" INSIDE it
+    # and exits 0, so acquire would report success while holding nothing,
+    # every write would then fail the ownership re-validation ("another
+    # writer took over"), and nothing downstream could clear the path
+    # (release's readlink reads an empty owner on a directory) -- a
+    # permanent wedge on the very input the replaced code recovered from.
+    # Break it the same SINGLE-WINNER way as the symlink stale break below:
+    # `mv` is an atomic rename, so only one waiter can quarantine the path,
+    # and the quarantined dir is removed only while its owner.pid records a
+    # dead (or absent) owner -- a live legacy holder falls through to the
+    # normal wait. At most once per acquire, so a path that cannot be
+    # removed falls through to the deadline/timeout instead of hot-looping.
+    if [[ -e "$lock" && ! -L "$lock" ]]; then
+      if [[ "$legacy_break_done" -eq 0 ]]; then
+        local legacy_pid=""
+        if [[ -f "$lock/owner.pid" ]]; then
+          legacy_pid="$(cat "$lock/owner.pid" 2>/dev/null || true)"
+        fi
+        if [[ -z "$legacy_pid" ]] || ! kill -0 "$legacy_pid" 2>/dev/null; then
+          legacy_break_done=1
+          local stale_target="$lock.stale.$$"
+          if mv "$lock" "$stale_target" 2>/dev/null; then
+            rm -rf "$stale_target" 2>/dev/null || true
+          fi
+          continue
+        fi
+      fi
+    elif ln -s "$$" "$lock" 2>/dev/null; then
+      # Deliberately NO ownership re-check here (repo#818 follow-up: measured
+      # in review): re-reading the lock right after a successful `ln -s` and
+      # falling through on a mismatch livelocks the acquirer on its OWN lock
+      # -- a stale-breaker can be mid-quarantine on our just-created symlink
+      # (its `mv` back restores it), and readlink == $$ is a LIVE owner by
+      # definition, so the wait loop below can never break it: every waiter
+      # dies 4 (A/B harness: 5/12 rounds failed with the re-check, 0/12
+      # without). Dispossession after acquire is handled where it matters:
+      # write_ssh_alias / remove_ssh_alias_blocks re-validate ownership
+      # immediately before installing and refuse loudly (rc 1, config
+      # untouched), so a swapped-out holder can never write unprotected.
       return 0
     fi
 

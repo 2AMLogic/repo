@@ -2235,7 +2235,7 @@ CONC2_DIR="$SCRATCH/conc2"
 sleep 0 & CONC2_DEAD_PID=$!
 wait "$CONC2_DEAD_PID" 2>/dev/null
 conc2_round() {  # <round> -- seed one stale lock, race 10 waiters at it
-  local r="$1" i p rc
+  local r="$1" i p rc w_rc
   rm -rf "$CONC2_DIR"
   mkdir -p "$CONC2_DIR"
   rm -rf "$CONC2_LOCK"
@@ -2264,7 +2264,10 @@ conc2_round() {  # <round> -- seed one stale lock, race 10 waiters at it
   done
   rc=0
   for p in "${pids[@]}"; do
-    wait "$p" || { rc=1; printf 'writer pid %s exited %s\n' "$p" "$?" >>"$CONC2_DIR/rc-errors"; }
+    # repo#818: capture the wait status BEFORE clobbering $? with rc=1 --
+    # "$?" inside the braces is the status of the last assignment, so the
+    # diagnostic always reported "exited 0" even when the real code was 4.
+    wait "$p" || { w_rc=$?; rc=1; printf 'writer pid %s exited %s\n' "$p" "$w_rc" >>"$CONC2_DIR/rc-errors"; }
   done
   # Pairwise EFFECTIVE hold-interval overlap check: only waiters that still
   # pass ownership validation count as holders (a dispossessed waiter is
@@ -2314,6 +2317,55 @@ if (( CONC2_FAILS == 0 )); then
 fi
 assert_eq "concurrent stale-lock acquire: stale seed cleared, no leftover lock" "" \
   "$( [[ -e "$CONC2_LOCK" || -L "$CONC2_LOCK" ]] && echo present )"
+
+# ---------------------------------------------------------------------------
+# repo#818 regression: a LEGACY lock directory must not defeat the lock.
+#
+# MEASURED (PR#818 review, round 2): the pre-#815 mkdir'd lock dir is exactly
+# what the replaced code leaves behind when a writer dies between mkdir and
+# release. Against a directory, `ln -s` creates "$lock/$$" INSIDE it and
+# exits 0, so acquire returned success while holding nothing: every write
+# failed rc 1 ("another writer took over") and the config was never written,
+# and nothing could clear the path (release's readlink reads an empty owner
+# on a directory) -- a permanent wedge, and a regression against the code
+# being replaced, which recovered from this same input. The acquire path must
+# break the residue once (same single-winner quarantine as the symlink stale
+# break) and complete the write.
+LEGACY_CFG="$SCRATCH/legacy_lock_ssh_config"
+LEGACY_LOCK="$LEGACY_CFG.lock"
+# Case 1: dead owner.pid recorded (the seeded reproduction: writer killed
+# between mkdir and release, plus the stray in-dir symlinks the broken code
+# litters -- measured residue: `1682843 1682906 1682960 owner.pid`).
+rm -rf "$LEGACY_LOCK"
+mkdir -p "$LEGACY_LOCK"
+printf '%s\n' "$CONC2_DEAD_PID" >"$LEGACY_LOCK/owner.pid"
+ln -s 424242 "$LEGACY_LOCK/1682843" 2>/dev/null || true
+LEGACY1_OUT="$(REPO_REMOTE_SSH_CONFIG="$LEGACY_CFG" bash -c "
+  source '$RR'
+  NAME=legacylock1
+  write_ssh_alias '10.0.0.41'
+" 2>&1)"
+LEGACY1_RC=$?
+assert_eq "legacy lock dir (dead owner.pid): write_ssh_alias succeeds" "0" "$LEGACY1_RC"
+assert_contains "legacy lock dir (dead owner.pid): stanza actually written" \
+  "$(cat "$LEGACY_CFG" 2>/dev/null || true)" "Host repo-remote-legacylock1"
+assert_eq "legacy lock dir (dead owner.pid): lock path and quarantine cleared" "" \
+  "$(find "$SCRATCH" -maxdepth 1 -name 'legacy_lock_ssh_config.lock*' 2>/dev/null | head -n 1)"
+# Case 2: nameless legacy dir (no owner.pid -- the state the old code's
+# empty-pid guard skipped, wedging every later acquire with die 4).
+rm -rf "$LEGACY_LOCK" "$LEGACY_CFG"
+mkdir -p "$LEGACY_LOCK"
+LEGACY2_OUT="$(REPO_REMOTE_SSH_CONFIG="$LEGACY_CFG" bash -c "
+  source '$RR'
+  NAME=legacylock2
+  write_ssh_alias '10.0.0.42'
+" 2>&1)"
+LEGACY2_RC=$?
+assert_eq "legacy lock dir (no owner.pid): write_ssh_alias succeeds" "0" "$LEGACY2_RC"
+assert_contains "legacy lock dir (no owner.pid): stanza actually written" \
+  "$(cat "$LEGACY_CFG" 2>/dev/null || true)" "Host repo-remote-legacylock2"
+assert_eq "legacy lock dir (no owner.pid): lock path and quarantine cleared" "" \
+  "$(find "$SCRATCH" -maxdepth 1 -name 'legacy_lock_ssh_config.lock*' 2>/dev/null | head -n 1)"
 
 # The temp file used for the read-modify-write swap must be created alongside
 # the target config (same directory as $cfg), not under the default $TMPDIR --
