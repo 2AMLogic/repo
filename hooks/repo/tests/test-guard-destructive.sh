@@ -8177,7 +8177,9 @@ CC_MSG_ENV=()
 cc_msg() {  # <desc> <cmd> <cwd> <grep -F needle>...
     local d="$1" cmd="$2" cwd="$3"; shift 3
     TOTAL=$((TOTAL + 1)); local out reason ok=1 n
-    out=$(cc_run "$cmd" "$cwd" "${CC_MSG_ENV[@]}"); reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
+    # bash < 4.4 aborts on "${arr[@]}" with the array empty under set -u, so
+    # guard the expansion the same way the env-assignment sites above do.
+    out=$(cc_run "$cmd" "$cwd" ${CC_MSG_ENV[@]+"${CC_MSG_ENV[@]}"}); reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
     for n in "$@"; do grep -qF -- "$n" <<<"$reason" || ok=0; done
     if [[ $ok -eq 1 && -n "$reason" ]]; then
         PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: $d"
@@ -8334,7 +8336,12 @@ cc_allow "#583: quoted prose with cargo +stable clean allowed" 'echo "try cargo 
 # --- helper adapter contract ---
 TOTAL=$((TOTAL + 1))
 _cc_adapt=$(bash -c '
-    source <(sed -n "/^_cargo_toml_target_dir_value()/,/^# tmpfs_ambient_target_dir()/p" "$1" | sed "\$d")
+    # Portable extraction source (test-side, #805 AC3): bash 3.2 `source <(...)`
+    # is a silent no-op (rc 0, executes nothing), so go through a temp file.
+    _cc_fns=$(mktemp) || exit 1
+    sed -n "/^_cargo_toml_target_dir_value()/,/^# tmpfs_ambient_target_dir()/p" "$1" | sed "\$d" > "$_cc_fns"
+    source "$_cc_fns"
+    rm -f "$_cc_fns"
     _cargo_config_walk_up_target_dir "$2"' _ "$GUARD" "$CC_REPO" 2>/dev/null || true)
 if [[ "$_cc_adapt" == "$CC_SHARED"$'\t'"$CC_REPO/.cargo/config.toml" ]]; then
     PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: #583: walk-up helper keeps <path>TAB<file> contract"
