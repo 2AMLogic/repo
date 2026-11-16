@@ -125,10 +125,13 @@ launch from an on-demand one **before** spending money. See [AWS market:
 on-demand or Spot](#aws-market-on-demand-or-spot).
 
 A real provision's `--json` output for `up` also carries an **additive**
-`ssh_alias_written` field (repo#827), appended as the last field: `true`, or
-`false` when `write_ssh_alias()` refused the write and the run continued
-non-fatally (AWS direct-IP and GCP). `ssh_alias` stays populated in both cases
-— it is the alias the run intended — so `ssh_alias_written` is the
+`ssh_alias_written` field (repo#827), appended as the last field: `true` when
+a stanza was written this run, `false` when it was not — either because
+`write_ssh_alias()` refused the write and the run continued non-fatally (AWS
+direct-IP and GCP), or because there was no usable host value (empty,
+whitespace-only, or the literal `None`), the deliberate skip that leaves the
+SSH config untouched (repo#216). `ssh_alias` stays populated in all cases —
+it is the alias the run intended — so `ssh_alias_written` is the
 disambiguator, never a replacement for checking `ssh_alias`. The non-JSON
 output flags it on the alias line as `<alias> (NOT written to the SSH
 config)`. Exit codes are unchanged: an SSM refusal still exits `4` (so SSM

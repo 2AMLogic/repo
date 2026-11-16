@@ -2568,6 +2568,14 @@ aws_up() {
   # repo#827: a refused alias write is non-fatal, so record it for the up
   # result's ssh_alias_written field instead of only logging.
   local alias_written=true
+  # repo#830: an empty/whitespace/"None" host value is write_ssh_alias()'s
+  # deliberate no-stanza skip (repo#216) -- nothing was written, so the up
+  # result must not claim it was. The rejected-write message below stays
+  # refusal-only; emit_up_result flags this skip on the alias line the same
+  # way.
+  if host_value_missing "$ip" >/dev/null; then
+    alias_written=false
+  fi
   if ! alias="$(write_ssh_alias "$ip")"; then
     alias_written=false
     log "SSH alias write for ${alias} was rejected (see error above); the SSH config was left untouched -- ssh ${alias} (or git-over-SSH via it) will not work until this is retried"
@@ -2761,6 +2769,14 @@ gcp_up() {
   # repo#827: a refused alias write is non-fatal, so record it for the up
   # result's ssh_alias_written field instead of only logging.
   local alias_written=true
+  # repo#830: an empty/whitespace/"None" host value is write_ssh_alias()'s
+  # deliberate no-stanza skip (repo#216) -- nothing was written, so the up
+  # result must not claim it was. The rejected-write message below stays
+  # refusal-only; emit_up_result flags this skip on the alias line the same
+  # way.
+  if host_value_missing "$ip" >/dev/null; then
+    alias_written=false
+  fi
   if ! alias="$(write_ssh_alias "$ip")"; then
     alias_written=false
     log "SSH alias write for ${alias} was rejected (see error above); the SSH config was left untouched -- ssh ${alias} (or git-over-SSH via it) will not work until this is retried"
@@ -3046,6 +3062,23 @@ ssh_alias_lock_held_by_me() {  # <cfg>
   [[ "$(readlink "$1.lock" 2>/dev/null || true)" == "$$" ]]
 }
 
+# host_value_missing: the ONE shared "there is no host value to write"
+# predicate (repo#830). Trims whitespace, then reports missing (rc 0) for an
+# empty value or the literal "None" -- the AWS CLI's `--output text` rendering
+# of a null scalar (see aws_public_ip()). write_ssh_alias() deliberately
+# skips the stanza on this predicate (repo#216), and the up call sites use it
+# to report ssh_alias_written:false for that skip, so the two definitions
+# cannot drift apart. The trimmed value is echoed on stdout so
+# write_ssh_alias() can reuse it for its config-line hygiene check; callers
+# that only need the verdict discard it.
+host_value_missing() {  # <host-value> [stdout: the trimmed value]
+  local v="${1-}"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s' "$v"
+  [[ -z "$v" || "$v" == "None" ]]
+}
+
 # Write/refresh the one-word SSH alias so the connection is `ssh repo-remote-<name>`.
 # Honors REPO_REMOTE_SSH_CONFIG (default ~/.ssh/config) so tests never touch a
 # real config. Echoes the alias name. Returns non-zero (without touching
@@ -3071,11 +3104,11 @@ write_ssh_alias() {  # <ip | instance-id> [ssm-region]
   # string, so a whitespace value or the literal "None" could slip through
   # and produce a HostName-less stanza -- which OpenSSH does not skip, it
   # refuses to parse the ENTIRE config file, taking every other Host block
-  # (and therefore git-over-SSH) down with it (repo#216).
-  local ip_trimmed="$ip"
-  ip_trimmed="${ip_trimmed#"${ip_trimmed%%[![:space:]]*}"}"
-  ip_trimmed="${ip_trimmed%"${ip_trimmed##*[![:space:]]}"}"
-  if [[ -z "$ip_trimmed" || "$ip_trimmed" == "None" ]]; then
+  # (and therefore git-over-SSH) down with it (repo#216). The predicate is
+  # shared with the up call sites (repo#830) and echoes the trimmed value,
+  # which the config-line hygiene check below needs.
+  local ip_trimmed
+  if ip_trimmed="$(host_value_missing "$ip")"; then
     printf '%s' "$alias"
     return 0
   fi
@@ -3990,12 +4023,15 @@ emit_plan() {  # dry-run plan (no cloud mutation)
 
 emit_up_result() {  # <id> <ip> <alias> <reused> [connect-target] [alias-written]
   # <alias-written> (repo#827, additive): false when write_ssh_alias()
-  # REFUSED the write (non-zero return) and the caller continued non-fatally.
-  # The alias itself stays populated in $3 either way -- it is the alias the
-  # run intended, printed by write_ssh_alias() before its return 1 -- so this
-  # boolean is the disambiguator, never a replacement for ssh_alias. Defaults
-  # to true: every caller that dies on a refused write (the ssm site) never
-  # reaches emit_up_result with a refused alias.
+  # REFUSED the write (non-zero return) and the caller continued non-fatally,
+  # and (repo#830) when the caller skipped the write because the host value
+  # was empty/whitespace/"None" (host_value_missing, the repo#216 skip) -- in
+  # both cases no stanza was written this run. The alias itself stays
+  # populated in $3 either way -- it is the alias the run intended, printed
+  # by write_ssh_alias() before its return 1 -- so this boolean is the
+  # disambiguator, never a replacement for ssh_alias. Defaults to true: every
+  # caller that dies on a refused write (the ssm site) never reaches
+  # emit_up_result with a refused alias.
   local id="$1" ip="$2" alias="$3" reused="$4" target="${5-$2}" alias_written="${6:-true}"
   if [[ "$JSON_OUT" == true ]]; then
     printf '{'
@@ -4025,8 +4061,9 @@ emit_up_result() {  # <id> <ip> <alias> <reused> [connect-target] [alias-written
     printf '"estimated_cost_basis":"%s"' "$(json_escape "$COST_BASIS")"
     # repo#827 (additive, appended after every existing field so the field
     # order consumers may rely on is unchanged): whether the SSH alias was
-    # actually written to the SSH config (false only on a non-fatally refused
-    # write). ssh_alias above stays populated either way.
+    # actually written to the SSH config in this run (false on a non-fatally
+    # refused write, repo#827, and on the deliberate empty/"None"-host
+    # no-stanza skip, repo#830). ssh_alias above stays populated either way.
     printf ',"ssh_alias_written":%s' "$alias_written"
     printf '}\n'
   else
@@ -4038,8 +4075,9 @@ emit_up_result() {  # <id> <ip> <alias> <reused> [connect-target] [alias-written
     if [[ "$alias_written" == true ]]; then
       log "  ssh alias:        $alias"
     else
-      # repo#827: the alias was intended but NOT installed in the SSH config,
-      # so flag it on the alias line rather than letting it read as usable.
+      # repo#827/#830: the alias was intended but NOT installed in the SSH
+      # config (refused write, or the empty/"None"-host skip), so flag it on
+      # the alias line rather than letting it read as usable.
       log "  ssh alias:        $alias (NOT written to the SSH config)"
     fi
     log "  attach:           repo-remote attach   (verifies the host, then opens a session with a fresh GitHub credential)"
