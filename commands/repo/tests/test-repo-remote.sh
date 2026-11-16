@@ -2303,12 +2303,16 @@ conc2_round() {  # <round> -- seed one stale lock, race 10 waiters at it
   local pids=()
   for i in $(seq 1 10); do
     REPO_REMOTE_SSH_CONFIG="$CONC2_CFG" REPO_REMOTE_SSH_LOCK_POLL_INTERVAL=0.01 bash -c "
+      # ns_now: portable ns clock (repo#823) -- BSD date emits a literal N for
+      # %N and exits 0, so judge the output shape, never date's exit status.
+      # Defined here (not exported) because this runs in the child shell.
+      ns_now() { local t; t=\"\$(date +%s%N)\"; case \"\$t\" in *[!0-9]*) python3 -c 'import time; print(int(time.time()*1e9))' ;; *) printf '%s' \"\$t\" ;; esac; }
       source '$RR'
       acquire_ssh_alias_lock '$CONC2_CFG'
-      printf 'acq %s\n' \$(date +%s%N)
+      printf 'acq %s\n' \$(ns_now)
       sleep 0.05
       if ssh_alias_lock_held_by_me '$CONC2_CFG'; then
-        printf 'rel %s\n' \$(date +%s%N)
+        printf 'rel %s\n' \$(ns_now)
         release_ssh_alias_lock '$CONC2_CFG'
         printf 'held\n'
       else
