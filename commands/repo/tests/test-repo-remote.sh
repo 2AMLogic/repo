@@ -841,6 +841,11 @@ assert_eq   "up --yes provisions -> exit 0" "0" "$RR_RC"
 assert_contains "JSON has instance id"   "$RR_OUT" '"instance_id":"i-0abc123"'
 assert_contains "JSON has a public ip field" "$RR_OUT" '"public_ip"'
 assert_contains "JSON has the ssh alias"  "$RR_OUT" '"ssh_alias":"repo-remote-myrepo"'
+assert_contains "JSON reports the alias was written (repo#827)" "$RR_OUT" '"ssh_alias_written":true'
+# repo#827 test-plan edge: the field is APPENDED -- every pre-existing field
+# keeps its order and ssh_alias_written is the last key before the close brace.
+assert_matches "JSON field order: ssh_alias_written is appended last (repo#827)" \
+  "$RR_OUT" '"ssh_alias_written":true\}$'
 assert_contains "JSON has estimated hourly cost" "$RR_OUT" '"estimated_hourly_cost_usd":0.384'
 assert_contains "JSON reports it created (not reused)" "$RR_OUT" '"reused":false'
 
@@ -2151,6 +2156,12 @@ assert_eq   "gcp: a rejected alias write leaves the pre-existing SSH config unto
   "$GCPREJ_BEFORE" "$(cat "$GCPREJ_CFG")"
 assert_eq   "gcp: a rejected alias write leaves no lock dir behind" "" \
   "$( [[ -e "$GCPREJ_CFG.lock" ]] && echo present )"
+# repo#827: same disambiguation on the GCP path -- refused write visible as
+# ssh_alias_written:false, ssh_alias itself still populated.
+assert_eq   "gcp: a rejected alias write reports ssh_alias_written:false" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "gcp: a rejected alias write keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
 
 # repo#824 test-plan edge: an empty/None IP is rc 0 with no stanza -- a
 # deliberate skip, not a rejection -- so it must not log the rejected-alias
@@ -2167,6 +2178,8 @@ GCPREJ_OK_CFG="$SCRATCH/gcp_ok_ssh_config"
 rm -f "$GCPREJ_OK_CFG" "$GCPREJ_OK_CFG.lock"
 run_rr REPO_REMOTE_SSH_CONFIG="$GCPREJ_OK_CFG" MOCK_GCP_IP=203.0.113.82 -- up --yes --json
 assert_eq   "gcp: successful alias write still exits 0" "0" "$RR_RC"
+assert_eq   "gcp: successful alias write reports ssh_alias_written:true (repo#827)" "true" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
 assert_not_contains "gcp: success logs no rejection" "$RR_ERR" "was rejected"
 assert_contains "gcp: success writes the HostName stanza" \
   "$(cat "$GCPREJ_OK_CFG" 2>/dev/null)" "HostName 203.0.113.82"
@@ -2609,6 +2622,36 @@ assert_eq   "a rejected alias write leaves the pre-existing SSH config untouched
   "$REJ_BEFORE" "$(cat "$REJ_CFG")"
 assert_eq   "a rejected alias write leaves no lock dir behind" "" \
   "$( [[ -e "$REJ_CFG.lock" ]] && echo present )"
+# repo#827: the refused write must be visible in the JSON -- ssh_alias_written
+# false, while ssh_alias itself stays populated (it is the intended alias).
+assert_eq   "aws: a rejected alias write reports ssh_alias_written:false" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "aws: a rejected alias write keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+
+# repo#827 test-plan case: the same refusal via a configured VALUE that fails
+# write_ssh_alias()'s config-line hygiene check (not the ssh -G backstop) -- a
+# host value containing a space. (The other hygiene inputs, a malformed
+# REPO_REMOTE_SSH_USER or a multi-line key, are refused earlier by
+# validate_transport_config() with exit 2, so they never reach `up`'s
+# non-fatal alias path at all.) Covered on both the JSON and the human path.
+BADVAL_CFG="$SCRATCH/badval_ssh_config"
+rm -f "$BADVAL_CFG" "$BADVAL_CFG.lock"
+run_rr MOCK_AWS_NEW_ID=i-0badhost REPO_REMOTE_SSH_CONFIG="$BADVAL_CFG" \
+  MOCK_AWS_PUBLIC_IP='203.0.113.73 x' -- up --yes --json
+assert_eq   "hygiene-refused host value: up still succeeds (non-fatal)" "0" "$RR_RC"
+assert_contains "hygiene-refused host value: the refusal is the config-line hygiene check" \
+  "$RR_ERR" "refusing to write SSH alias"
+assert_eq   "hygiene-refused host value: ssh_alias_written:false" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "hygiene-refused host value: ssh_alias stays populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+assert_eq   "hygiene-refused host value: the SSH config is left unwritten" "" \
+  "$( [[ -s "$BADVAL_CFG" ]] && echo present )"
+run_rr MOCK_AWS_NEW_ID=i-0badhost2 MOCK_AWS_PUBLIC_IP='203.0.113.74 x' -- up --yes
+assert_eq   "hygiene-refused host value (human output): up still succeeds" "0" "$RR_RC"
+assert_contains "hygiene-refused host value (human output): the alias line flags the unwritten alias (repo#827)" \
+  "$RR_ERR" "repo-remote-myrepo (NOT written to the SSH config)"
 
 # ---------------------------------------------------------------------------
 echo ""
