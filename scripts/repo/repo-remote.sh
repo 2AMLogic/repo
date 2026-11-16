@@ -2565,7 +2565,11 @@ aws_up() {
 
   writeback_instance_id "$iid"
   local alias
+  # repo#827: a refused alias write is non-fatal, so record it for the up
+  # result's ssh_alias_written field instead of only logging.
+  local alias_written=true
   if ! alias="$(write_ssh_alias "$ip")"; then
+    alias_written=false
     log "SSH alias write for ${alias} was rejected (see error above); the SSH config was left untouched -- ssh ${alias} (or git-over-SSH via it) will not work until this is retried"
   fi
 
@@ -2599,7 +2603,7 @@ aws_up() {
     log "WARNING: no public IP resolved, so ${alias} was not refreshed and its host identity could not be verified -- whatever HostName it still carries is from a previous session and may now resolve to an unrelated instance. Re-run 'repo-remote up --yes' once the IP is available, then 'repo-remote verify', before using it."
   fi
 
-  emit_up_result "$iid" "$ip" "$alias" "$reused" "$ip"
+  emit_up_result "$iid" "$ip" "$alias" "$reused" "$ip" "$alias_written"
 }
 
 # `verify` (repo#458): resolve the instance id this repo EXPECTS at the alias,
@@ -2754,10 +2758,14 @@ gcp_up() {
 
   writeback_instance_id "$vm"
   local alias
+  # repo#827: a refused alias write is non-fatal, so record it for the up
+  # result's ssh_alias_written field instead of only logging.
+  local alias_written=true
   if ! alias="$(write_ssh_alias "$ip")"; then
+    alias_written=false
     log "SSH alias write for ${alias} was rejected (see error above); the SSH config was left untouched -- ssh ${alias} (or git-over-SSH via it) will not work until this is retried"
   fi
-  emit_up_result "$vm" "$ip" "$alias" "$reused"
+  emit_up_result "$vm" "$ip" "$alias" "$reused" "$ip" "$alias_written"
 }
 
 gcp_status() {
@@ -3980,8 +3988,15 @@ emit_plan() {  # dry-run plan (no cloud mutation)
   fi
 }
 
-emit_up_result() {  # <id> <ip> <alias> <reused> [connect-target]
-  local id="$1" ip="$2" alias="$3" reused="$4" target="${5-$2}"
+emit_up_result() {  # <id> <ip> <alias> <reused> [connect-target] [alias-written]
+  # <alias-written> (repo#827, additive): false when write_ssh_alias()
+  # REFUSED the write (non-zero return) and the caller continued non-fatally.
+  # The alias itself stays populated in $3 either way -- it is the alias the
+  # run intended, printed by write_ssh_alias() before its return 1 -- so this
+  # boolean is the disambiguator, never a replacement for ssh_alias. Defaults
+  # to true: every caller that dies on a refused write (the ssm site) never
+  # reaches emit_up_result with a refused alias.
+  local id="$1" ip="$2" alias="$3" reused="$4" target="${5-$2}" alias_written="${6:-true}"
   if [[ "$JSON_OUT" == true ]]; then
     printf '{'
     printf '"action":"up",'
@@ -4008,6 +4023,11 @@ emit_up_result() {  # <id> <ip> <alias> <reused> [connect-target]
     printf '"estimated_hourly_cost_usd":%s,' "$COST_HOURLY"
     printf '"estimated_cost_approximate":%s,' "$COST_APPROX"
     printf '"estimated_cost_basis":"%s"' "$(json_escape "$COST_BASIS")"
+    # repo#827 (additive, appended after every existing field so the field
+    # order consumers may rely on is unchanged): whether the SSH alias was
+    # actually written to the SSH config (false only on a non-fatally refused
+    # write). ssh_alias above stays populated either way.
+    printf ',"ssh_alias_written":%s' "$alias_written"
     printf '}\n'
   else
     if [[ "$PROVIDER" == aws && "$TRANSPORT" == ssm ]]; then
@@ -4015,7 +4035,13 @@ emit_up_result() {  # <id> <ip> <alias> <reused> [connect-target]
     else
       log "$([[ "$reused" == true ]] && echo reused || echo created) instance $id (${INSTANCE_TYPE}) @ ${ip:-<no public ip>}"
     fi
-    log "  ssh alias:        $alias"
+    if [[ "$alias_written" == true ]]; then
+      log "  ssh alias:        $alias"
+    else
+      # repo#827: the alias was intended but NOT installed in the SSH config,
+      # so flag it on the alias line rather than letting it read as usable.
+      log "  ssh alias:        $alias (NOT written to the SSH config)"
+    fi
     log "  attach:           repo-remote attach   (verifies the host, then opens a session with a fresh GitHub credential)"
     log "  est. hourly cost: \$${COST_HOURLY}/hr$(cost_note_human)"
     if is_spot; then
