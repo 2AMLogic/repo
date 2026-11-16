@@ -836,7 +836,11 @@ assert_eq   "no cloud mutation in dry run" "0" "$(grep -c 'run-instances' "$MOCK
 echo ""
 echo "-- JSON output shape on a real (mocked) provision --"
 # ---------------------------------------------------------------------------
-run_rr MOCK_AWS_NEW_ID=i-0abc123 MOCK_AWS_STATE=None -- up --yes --json
+# MOCK_AWS_PUBLIC_IP makes this a REAL alias write, which repo#827's
+# ssh_alias_written:true assertions require: without it the public-IP lookup
+# answers the canned "None" (MOCK_AWS_STATE), which since repo#830 is the
+# deliberate no-stanza skip and reports false (covered by its own tests).
+run_rr MOCK_AWS_NEW_ID=i-0abc123 MOCK_AWS_STATE=None MOCK_AWS_PUBLIC_IP=203.0.113.45 -- up --yes --json
 assert_eq   "up --yes provisions -> exit 0" "0" "$RR_RC"
 assert_contains "JSON has instance id"   "$RR_OUT" '"instance_id":"i-0abc123"'
 assert_contains "JSON has a public ip field" "$RR_OUT" '"public_ip"'
@@ -2165,11 +2169,42 @@ assert_eq   "gcp: a rejected alias write keeps ssh_alias populated" "repo-remote
 
 # repo#824 test-plan edge: an empty/None IP is rc 0 with no stanza -- a
 # deliberate skip, not a rejection -- so it must not log the rejected-alias
-# message.
+# message. repo#830: the skip is also NOT a write, so ssh_alias_written must
+# report false (the field means "a stanza was written in this run") while
+# ssh_alias stays populated, and the human alias line flags it the same way
+# a refusal is flagged.
+GCPNONE_CFG="$SCRATCH/gcp_none_ssh_config"
+rm -f "$GCPNONE_CFG" "$GCPNONE_CFG.lock"
 write_repo_env "${GCP_ENV[@]}"
-run_rr MOCK_GCP_IP=None -- up --yes --json
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPNONE_CFG" MOCK_GCP_IP=None -- up --yes --json
 assert_eq   "gcp: a None IP (no stanza) still exits 0" "0" "$RR_RC"
 assert_not_contains "gcp: a None IP is not reported as a rejected alias write" \
+  "$RR_ERR" "was rejected"
+assert_eq   "gcp: a None IP reports ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "gcp: a None IP keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+assert_eq   "gcp: a None IP writes no stanza (config stays 0 bytes)" "" \
+  "$( [[ -s "$GCPNONE_CFG" ]] && echo present )"
+# Whitespace-only host value: the same deliberate skip (the gcloud mock's
+# ${MOCK_GCP_IP:-...} default cannot express a truly empty value, so the trim
+# edge rides on the whitespace form; the empty form is covered directly by the
+# host_value_missing unit tests and, end to end, by the AWS empty-IP path).
+GCPWS_CFG="$SCRATCH/gcp_ws_ssh_config"
+rm -f "$GCPWS_CFG" "$GCPWS_CFG.lock"
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPWS_CFG" MOCK_GCP_IP='   ' -- up --yes --json
+assert_eq   "gcp: a whitespace-only IP still exits 0" "0" "$RR_RC"
+assert_not_contains "gcp: a whitespace-only IP is not reported as a rejected alias write" \
+  "$RR_ERR" "was rejected"
+assert_eq   "gcp: a whitespace-only IP reports ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "gcp: a whitespace-only IP writes no stanza" "" \
+  "$( [[ -s "$GCPWS_CFG" ]] && echo present )"
+run_rr MOCK_GCP_IP=None -- up --yes
+assert_eq   "gcp: a None IP (human output) still exits 0" "0" "$RR_RC"
+assert_contains "gcp: a None IP (human output) flags the alias as not written (repo#830)" \
+  "$RR_ERR" "repo-remote-myrepo (NOT written to the SSH config)"
+assert_not_contains "gcp: a None IP (human output) logs no rejected-alias message" \
   "$RR_ERR" "was rejected"
 
 # The success path is unchanged: the stanza lands, no rejection is logged.
@@ -2536,6 +2571,34 @@ if [[ -s "$E2E_CFG" ]]; then
 else
   ok "up with a None public IP -> no SSH config file was written (nothing to parse)"
 fi
+# repo#830: the None-IP skip wrote no stanza, so the up result must not claim
+# one was -- ssh_alias_written:false while ssh_alias stays populated.
+assert_eq   "up with a None public IP reports ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "up with a None public IP keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+run_rr MOCK_AWS_NEW_ID=i-0e2enone2 MOCK_AWS_STATE=None -- up --yes
+assert_eq   "up with a None public IP (human output) still succeeds" "0" "$RR_RC"
+assert_contains "up with a None public IP (human output) flags the alias as not written (repo#830)" \
+  "$RR_ERR" "repo-remote-myrepo (NOT written to the SSH config)"
+
+# (e2) repo#830: host_value_missing() is the ONE shared no-host-value
+# predicate -- write_ssh_alias() skips the stanza on it (repo#216) and the up
+# call sites report ssh_alias_written:false on it, so its trim-and-compare
+# cannot drift between the two users. Same direct-source shape as the tests
+# above.
+hvm() {
+  REPO_REMOTE_SSH_CONFIG=/dev/null bash -c "
+    source '$RR'
+    host_value_missing \"\$1\" >/dev/null && echo missing || echo present
+  " _ "$1"
+}
+assert_eq "host_value_missing: empty is missing"                  "missing" "$(hvm '')"
+assert_eq "host_value_missing: whitespace-only is missing"        "missing" "$(hvm '   ')"
+assert_eq "host_value_missing: literal None is missing"           "missing" "$(hvm 'None')"
+assert_eq "host_value_missing: whitespace-padded None is missing" "missing" "$(hvm ' None ')"
+assert_eq "host_value_missing: a real IP is present"              "present" "$(hvm '203.0.113.9')"
+assert_eq "host_value_missing: an instance id is present"         "present" "$(hvm 'i-0abc123')"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -2601,6 +2664,12 @@ assert_eq   "failed public-IP lookup -> no SSH config written for the empty IP" 
   "$( [[ -s "$IPFAIL_CFG" ]] && echo present )"
 assert_contains "failed public-IP lookup -> the reachability probe is skipped, not failed" \
   "$RR_ERR" "skipping the end-of-run SSH reachability check"
+# repo#830: the empty-IP skip (aws_wait_public_ip budget exhausted) writes no
+# stanza either, so ssh_alias_written must be false there too.
+assert_eq   "failed public-IP lookup -> ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "failed public-IP lookup -> ssh_alias stays populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
 
 # (i) The other new aws_up() branch: write_ssh_alias() returning non-zero (the
 # write-then-validate rollback) must be reported, not silently ignored -- and
@@ -4681,6 +4750,10 @@ assert_contains "remote.md documents the public-IP poll knobs" \
   "$MD" "REPO_REMOTE_IP_POLL_ATTEMPTS"
 assert_contains "remote.md documents the not-refreshed alias warning" \
   "$MD" "alias was not refreshed"
+# repo#830: the ssh_alias_written contract must state the no-host-value skip
+# coverage, so the doc cannot drift back to refusal-only.
+assert_contains "remote.md documents that ssh_alias_written:false also covers the no-IP skip" \
+  "$MD" "no usable host value"
 
 # repo#487: the SSH-ingress posture (fail closed on failed detection, validated
 # override with a loud opt-in, revoke-before-authorize keyed on an owner marker)
