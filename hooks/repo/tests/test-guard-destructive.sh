@@ -6307,12 +6307,23 @@ echo -e "${YELLOW}--- Performance check ---${NC}"
 #                             suite fails (FAIL++/exit 1). Intended only for
 #                             runs on a deliberately quiescent machine.
 PERF_MAX_MS="${LOOM_GUARD_PERF_MAX_MS:-200}"
+# Portable nanosecond clock (repo#823): BSD date emits a literal `N` for %N
+# and exits 0, so a `date ... || python3` fallback cannot fire there -- judge
+# the output shape, never date's exit status.
+ns_now() {
+    local t
+    t="$(date +%s%N)"
+    case "$t" in
+        *[!0-9]*) python3 -c 'import time; print(int(time.time()*1e9))' ;;
+        *) printf '%s' "$t" ;;
+    esac
+}
 TOTAL=$((TOTAL + 1))
-START=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+START=$(ns_now)
 for i in $(seq 1 10); do
     make_input "git status" "$REPO_ROOT" | "$GUARD" >/dev/null 2>&1
 done
-END=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+END=$(ns_now)
 ELAPSED_MS=$(( (END - START) / 1000000 ))
 AVG_MS=$((ELAPSED_MS / 10))
 
