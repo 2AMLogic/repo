@@ -370,7 +370,16 @@ def app_status_line(installed, app_slug=RENOVATE_APP_SLUG, install_url=RENOVATE_
 
 
 def snapshot(api, target):
-    metadata = api.api(f"repos/{target}", missing_ok=True)
+    try:
+        metadata = api.api(f"repos/{target}", missing_ok=True)
+    except PolicyError as error:
+        if re.search(r"HTTP 403\b", str(error)):
+            raise PolicyError(
+                f"GitHub refused access to {target} (HTTP 403). That is not a 404, so "
+                f"{target} is not known to be absent and no create-repository plan was "
+                f"made. No change was made. Check that the token can read {target}, "
+                f"then run again. ({error})") from error
+        raise
     if metadata is None:
         return None
     branch = metadata["default_branch"]
@@ -600,7 +609,16 @@ def apply_plan(api, plan):
         api.api(endpoint, "POST", {"name": ".github", "private": plan["createRepository"] == "private",
                                   "auto_init": True, "description": "Organization repository policy"})
         print(f"Created {target} ({plan['createRepository']}); publishing the policy PR next.", file=sys.stderr)
-        current = snapshot(api, target)
+        try:
+            current = snapshot(api, target)
+        except PolicyError as error:
+            if re.search(r"HTTP 403\b", str(error)):
+                cause = error.__cause__ or error
+                raise PolicyError(
+                    f"GitHub refused access to {target} (HTTP 403) right after creating it. "
+                    f"{target} was just created, but the policy PR was not published. Check "
+                    f"that the token can read {target}, then run again. ({cause})") from error
+            raise
         if current is None:
             raise PolicyError("Repository created, but its initial commit is not ready. Generate a new plan")
     # Reuse the exact branch on a retry; never force-update an existing branch.
