@@ -4,6 +4,7 @@ description: "Preview or install canonical rjwalters/repo preferences into a cli
 domain: repo
 type: command
 user-invocable: true
+disable-model-invocation: true
 ---
 
 # /repo:org-policy — Organization Preferences
