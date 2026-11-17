@@ -38,7 +38,7 @@ type: skill
 user-invocable: false
 ```
 
-Every file under `commands/repo/*.md` carries the same four keys with
+Every file under `commands/repo/*.md` carries the same five keys with
 `type: command` and `user-invocable: true` instead. As of repo#832
 (2026-11-17), nine rarely-dispatched command files add one more key,
 `disable-model-invocation: true` (see its table row below): `sudo`,
