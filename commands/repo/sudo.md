@@ -4,6 +4,7 @@ description: "Opt-in passwordless sudo for a dev machine — install a visudo-va
 domain: repo
 type: command
 user-invocable: true
+disable-model-invocation: true
 ---
 
 # /repo:sudo — Passwordless-sudo setup for dev machines

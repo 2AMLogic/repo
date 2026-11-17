@@ -52,7 +52,8 @@
 # commands/repo/tests/test-deps-no-ci.sh,
 # commands/repo/tests/test-handoff-preflight.sh,
 # commands/repo/tests/test-update-tools-squad.sh,
-# commands/repo/tests/test-run-sh-failure-output.sh, and
+# commands/repo/tests/test-run-sh-failure-output.sh,
+# commands/repo/tests/test-model-invocation-flags.sh, and
 # commands/repo/tests/test_optimize_ci.py.
 #
 # A completeness check at the end fails the run for any test-*.sh / test_*.py under
@@ -2103,6 +2104,43 @@ fi
 PASS=$((PASS + OC_PASS)); FAIL=$((FAIL + OC_FAIL))
 record_suite "test_optimize_ci.py" "$OC_PASS" "$OC_FAIL" "optimize-ci workflow audit"
 printf '  optimize-ci: %s passed, %s failed\n' "$OC_PASS" "$OC_FAIL"
+
+# The repo#832 model-invocation flags: nine commands carry frontmatter
+# disable-model-invocation: true (out of the model-visible listing, still
+# typed-invocable). This pins the exact flagged set so flags cannot silently
+# appear on, or vanish from, a command. Same delegation shape as every suite
+# above.
+echo
+echo "-- model-invocation flags on commands/repo/*.md (delegated suite) --"
+MI_TEST="$TESTS_DIR/../../../commands/repo/tests/test-model-invocation-flags.sh"
+if [[ ! -f "$MI_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-model-invocation-flags.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-model-invocation-flags.sh" "$MI_TEST"
+else
+    MI_OUT="$(bash "$MI_TEST" 2>&1)"
+    MI_STATUS=$?
+    MI_PASS="$(suite_count Passed "$MI_OUT")"
+    MI_FAIL="$(suite_count Failed "$MI_OUT")"
+    if ! [[ "$MI_PASS" =~ ^[0-9]+$ && "$MI_FAIL" =~ ^[0-9]+$ ]]; then
+        MI_PASS=0
+        MI_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-model-invocation-flags.sh" "$MI_STATUS"
+        strip_ansi "$MI_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$MI_STATUS" -ne 0 || "$MI_FAIL" -ne 0 ]]; then
+        [[ "$MI_FAIL" -eq 0 ]] && MI_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-model-invocation-flags.sh" "$MI_PASS" "$MI_FAIL" "$MI_STATUS"
+        print_failures "$MI_OUT"
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-model-invocation-flags.sh" "$MI_PASS"
+    fi
+    PASS=$((PASS + MI_PASS))
+    FAIL=$((FAIL + MI_FAIL))
+    record_suite "test-model-invocation-flags.sh" "$MI_PASS" "$MI_FAIL" "repo#832 model-invocation flag set"
+fi
+
 # Completeness guard (#774): every test file must be wired into the gate.
 # Enumerate the suites and require each basename to appear either in this
 # file's CODE (comment lines stripped, so the header list alone cannot satisfy
