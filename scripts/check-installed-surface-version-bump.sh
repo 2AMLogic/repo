@@ -44,9 +44,11 @@
 #
 # Exit codes:
 #   0 - nothing under the watched surface changed in the diff, OR VERSION was
-#       also changed, OR the no-surface-change marker is present.
-#   1 - the watched surface changed, VERSION was not, and no marker is
-#       present.
+#       changed to a strictly greater value, OR the no-surface-change marker
+#       is present.
+#   1 - the watched surface changed without a value-increasing VERSION bump
+#       (VERSION untouched, rewritten to an equal value, or moved DOWN) and
+#       no marker is present.
 #   2 - bad usage (missing/invalid --base or --head).
 
 set -euo pipefail
@@ -117,9 +119,34 @@ fi
 
 VERSION_CHANGED="$(git diff --name-only "$BASE" "$HEAD" -- VERSION 2>/dev/null || true)"
 
+# A VERSION change only satisfies the gate if the value actually moved UP: a
+# downgrade must not pass (#835). This is the normal end state of the
+# stale-bump race — main auto-bumps on every merge, so a long-lived feature
+# branch can trail below the base it is diffed against, and a name-only
+# presence test on the VERSION path accepted that as a "bump".
+DOWNGRADE=""
 if [[ -n "$VERSION_CHANGED" ]]; then
-  echo "check-installed-surface-version-bump: OK — installed surface changed and VERSION was bumped."
-  exit 0
+  BASE_VERSION="$(git show "$BASE:VERSION" 2>/dev/null | tr -d '[:space:]' || true)"
+  HEAD_VERSION="$(git show "$HEAD:VERSION" 2>/dev/null | tr -d '[:space:]' || true)"
+
+  if [[ -z "$BASE_VERSION" ]]; then
+    # VERSION is newly added at HEAD (absent at the base): no pre-existing
+    # value to regress.
+    echo "check-installed-surface-version-bump: OK — installed surface changed and VERSION was added."
+    exit 0
+  fi
+
+  if [[ -z "$HEAD_VERSION" ]]; then
+    DOWNGRADE="VERSION removed"
+  elif [[ "$BASE_VERSION" != "$HEAD_VERSION" ]] && \
+       [[ "$(printf '%s\n%s\n' "$BASE_VERSION" "$HEAD_VERSION" | sort -V | tail -n1)" == "$HEAD_VERSION" ]]; then
+    echo "check-installed-surface-version-bump: OK — installed surface changed and VERSION was bumped ($BASE_VERSION -> $HEAD_VERSION)."
+    exit 0
+  elif [[ "$HEAD_VERSION" != "$BASE_VERSION" ]]; then
+    DOWNGRADE="$BASE_VERSION -> $HEAD_VERSION"
+  fi
+  # Equal-value rewrite (VERSION touched but not increased): falls through to
+  # the marker checks, then the plain no-bump failure below.
 fi
 
 # --- no-surface-change marker check -----------------------------------------
@@ -134,7 +161,11 @@ if git log --format=%B "${BASE}..${HEAD}" 2>/dev/null | grep -qF "$MARKER"; then
   exit 0
 fi
 
-echo "check-installed-surface-version-bump: FAIL — installed surface changed without a VERSION bump:" >&2
+if [[ -n "$DOWNGRADE" ]]; then
+  echo "check-installed-surface-version-bump: FAIL — installed surface changed and VERSION was a downgrade ($DOWNGRADE); a bump must increase it:" >&2
+else
+  echo "check-installed-surface-version-bump: FAIL — installed surface changed without a VERSION bump:" >&2
+fi
 echo "" >&2
 echo "$CHANGED_FILES" | sed 's/^/  /' >&2
 echo "" >&2
