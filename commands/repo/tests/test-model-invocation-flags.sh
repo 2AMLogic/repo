@@ -131,7 +131,12 @@ else
 fi
 
 echo ""
-echo "Passed: $PASS  Failed: $FAIL  Skipped: $SKIP  Total: $TOTAL"
+echo "========================================="
+echo "  Total:  $TOTAL"
+printf "  ${GREEN}Passed${NC}: %s\n" "$PASS"
+printf "  ${RED}Failed${NC}: %s\n" "$FAIL"
+printf "  ${YELLOW}Skipped${NC}: %s\n" "$SKIP"
+echo "========================================="
 if [[ "$FAIL" -ne 0 ]]; then
     echo "FAILURES DETECTED"
     exit 1
