@@ -26,7 +26,8 @@ ls commands/repo/                 # confirm the command roster hasn't shifted
 ## Frontmatter field reference
 
 Every `SKILL.md` and `commands/<domain>/*.md` file in this repo opens with the
-same five-key YAML frontmatter block. `skills/repo/SKILL.md`'s block, as of the
+same core five-key YAML frontmatter block; nine command files add a sixth key
+(see below). `skills/repo/SKILL.md`'s block, as of the
 commit above, is:
 
 ```yaml
