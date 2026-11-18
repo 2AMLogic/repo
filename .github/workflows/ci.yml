@@ -1,10 +1,11 @@
 name: CI
 
 # Runs the repository's full test suite (`pnpm test` -> hooks/repo/tests/run.sh,
-# the ~532-case guard/handoff/loss-check suite) on every pull request and on
-# every push to the default branch. Before this workflow the suite only ran when
-# a human remembered to run it locally, so `gh pr checks` reported "no checks
-# reported" and PRs merged unverified (issue #48).
+# the ~532-case guard/handoff/loss-check suite) on every pull request, on every
+# push to the default branch, and on every merge-group commit when a GitHub
+# merge queue evaluates a batch (#841). Before this workflow the suite only ran
+# when a human remembered to run it locally, so `gh pr checks` reported "no
+# checks reported" and PRs merged unverified (issue #48).
 #
 # The suite is exercised on every push AND every PR (not split): it takes ~60s,
 # well within a single job's budget, so there is no reason to split coverage and
@@ -33,6 +34,13 @@ on:
   push:
     branches:
       - main
+  # Merge-queue qualification (#841): when a GitHub merge queue evaluates a
+  # group, re-run every job below on the queue's combined merge commit (base +
+  # all batched PR heads) so the suite validates the tree that would actually
+  # land, not just individual PR heads. `checks_requested` is the only
+  # merge_group event type.
+  merge_group:
+    types: [checks_requested]
 
 # Cancel superseded runs on the same ref to save runner minutes — but ONLY for
 # pull requests. An unconditional `cancel-in-progress: true` also applies to the
@@ -40,8 +48,19 @@ on:
 # previous `main` run in this group and intermediate merged commits end up with
 # no completed CI run at all. A regression introduced by a middle merge then
 # surfaces later, attributed to the wrong commit (issue #507).
+#
+# Merge-group runs (#841) get their own concurrency group keyed by the group's
+# unique head SHA — one run per queue batch — and `cancel-in-progress` stays
+# false for them, so a later PR or push run can neither cancel nor supersede a
+# merge-group run: a queue decision must be reported, never raced. PR and push
+# groups keep the exact group string they had before.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{
+      github.event_name == 'merge_group'
+      && format('ci-merge-group-{0}', github.event.merge_group.head_sha)
+      || format('ci-{0}-{1}', github.workflow, github.ref)
+    }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -63,6 +82,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        # No `ref:` override on purpose: actions/checkout defaults to
+        # github.sha, which on a `merge_group` event is the queue's combined
+        # merge commit (#841) — exactly the tree a merge decision needs tested.
+        # On pull_request/push events this is unchanged (PR merge ref / pushed
+        # commit).
 
       # The test harness (hooks/repo/tests/run.sh) hard-fails with
       # "FATAL: jq is required" if jq is absent. ubuntu-latest ships jq, but
@@ -156,10 +180,18 @@ jobs:
   # the same reason documented above the `test` job (issue #73): this is a
   # solo-operator repo where merge-pr.sh already treats a red check as a stop
   # signal, so a visible, non-required check is the right level of force here.
+  #
+  # Also runs on merge groups (#841), deriving base/head from
+  # github.event.merge_group so the gate validates the combined tree a queue
+  # would merge, with all of a batch's commits visible. One deliberate
+  # asymmetry: a merge_group event carries no PR metadata, so PR_BODY is empty
+  # there and the marker can only be honored from a commit message in the
+  # group — the PR-body marker path keeps working on pull_request runs. Only
+  # real shas reach the script; nothing event-specific is faked.
   version-bump-gate:
     name: consumer-visible changes require a VERSION bump
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -167,12 +199,26 @@ jobs:
           # Full history so the PR's base and head shas both resolve locally
           # — check-installed-surface-version-bump.sh diffs base..head
           # directly and needs both commits present, not just their ancestry.
+          # On merge_group events the checkout defaults to the group's
+          # combined merge commit, whose ancestry includes every batched PR's
+          # commits, so both the diff and the commit-message marker scan see
+          # the whole group.
           fetch-depth: 0
 
       - name: Check installed-surface VERSION bump
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: |
-          ./scripts/check-installed-surface-version-bump.sh \
-            --base "${{ github.event.pull_request.base.sha }}" \
-            --head "${{ github.event.pull_request.head.sha }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          else
+            base="$GROUP_BASE_SHA"
+            head="$GROUP_HEAD_SHA"
+          fi
+          ./scripts/check-installed-surface-version-bump.sh --base "$base" --head "$head"
