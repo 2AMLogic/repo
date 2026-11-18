@@ -51,7 +51,10 @@ while IFS= read -r f; do
         fi
     done < <(grep -n 'rjwalters/repo' "$f" | sed 's/^[0-9]*://')
 done < <(git ls-files -- "${SCAN_PATHS[@]}" \
-         | grep -Ev '(^|/)(CHANGELOG\.md|WORK_LOG\.md)$|(^|/)work_log/|(^|/)docs/')
+         | grep -Ev '(^|/)(CHANGELOG\.md|WORK_LOG\.md)$|(^|/)work_log/|(^|/)docs/' \
+         | grep -v -- "$(basename "$0")")
+# ^ this suite is excluded from its own scan: it is the detector, and its code
+# and comments must name the literal it detects to detect it.
 
 if [[ ${#offenders[@]} -eq 0 ]]; then
     PASS=$((PASS + 1)); echo "PASS: no stale owner slug in the shipped surface (history and issue refs excepted)"
