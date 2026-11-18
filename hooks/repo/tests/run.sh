@@ -53,7 +53,8 @@
 # commands/repo/tests/test-handoff-preflight.sh,
 # commands/repo/tests/test-update-tools-squad.sh,
 # commands/repo/tests/test-run-sh-failure-output.sh,
-# commands/repo/tests/test-model-invocation-flags.sh, and
+# commands/repo/tests/test-model-invocation-flags.sh,
+# commands/repo/tests/test-no-stale-owner-slug.sh, and
 # commands/repo/tests/test_optimize_ci.py.
 #
 # A completeness check at the end fails the run for any test-*.sh / test_*.py under
@@ -2105,6 +2106,40 @@ else
     PASS=$((PASS + MI_PASS))
     FAIL=$((FAIL + MI_FAIL))
     record_suite "test-model-invocation-flags.sh" "$MI_PASS" "$MI_FAIL" "repo#832 model-invocation flag set"
+fi
+
+# Stale owner slug (#844): after the move to 2AMLogic/repo, the shipped
+# surface must not name the pre-move owner slug except in history prose and
+# issue/PR-number references. Same delegation shape as every suite above.
+echo
+echo "-- no stale owner slug in shipped files (delegated suite) --"
+NS_TEST="$TESTS_DIR/../../../commands/repo/tests/test-no-stale-owner-slug.sh"
+if [[ ! -f "$NS_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-no-stale-owner-slug.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-no-stale-owner-slug.sh" "$NS_TEST"
+else
+    NS_OUT="$(bash "$NS_TEST" 2>&1)"
+    NS_STATUS=$?
+    NS_PASS="$(suite_count Passed "$NS_OUT")"
+    NS_FAIL="$(suite_count Failed "$NS_OUT")"
+    if ! [[ "$NS_PASS" =~ ^[0-9]+$ && "$NS_FAIL" =~ ^[0-9]+$ ]]; then
+        NS_PASS=0
+        NS_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-no-stale-owner-slug.sh" "$NS_STATUS"
+        strip_ansi "$NS_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$NS_STATUS" -ne 0 || "$NS_FAIL" -ne 0 ]]; then
+        [[ "$NS_FAIL" -eq 0 ]] && NS_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-no-stale-owner-slug.sh" "$NS_PASS" "$NS_FAIL" "$NS_STATUS"
+        print_failures "$NS_OUT"
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-no-stale-owner-slug.sh" "$NS_PASS"
+    fi
+    PASS=$((PASS + NS_PASS))
+    FAIL=$((FAIL + NS_FAIL))
+    record_suite "test-no-stale-owner-slug.sh" "$NS_PASS" "$NS_FAIL" "no stale owner slug outside history refs"
 fi
 
 # Completeness guard (#774): every test file must be wired into the gate.

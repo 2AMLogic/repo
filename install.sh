@@ -1149,7 +1149,7 @@ fi
 BLOCK_FILE="$(mktemp)"
 {
   echo "$MARKER_BEGIN"
-  echo "This repository has [Repo Skills](https://github.com/rjwalters/repo) v$VERSION installed —"
+  echo "This repository has [Repo Skills](https://github.com/2AMLogic/repo) v$VERSION installed —"
   echo "general repository hygiene and environment commands invoked as \`/repo:<command>\`. Run"
   echo "\`/repo:help\` for the command list, or see \`.claude/skills/repo/SKILL.md\` for the full"
   echo "guide. Hygiene commands apply safe, reversible fixes by default and report each"

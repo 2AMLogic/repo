@@ -88,7 +88,7 @@ class FakeGitHub:
         parsed = urlparse(endpoint)
         route = parsed.path
         query = parse_qs(parsed.query)
-        source_root = "repos/rjwalters/repo"
+        source_root = "repos/2AMLogic/repo"
         target_root = f"repos/{self.target}"
         if route == f"{source_root}/commits/HEAD":
             return {"sha": self.source_revision}
