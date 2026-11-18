@@ -9,7 +9,7 @@
 # Ported from rjwalters/loom's tests/hooks/test-guard-destructive.sh as part of
 # the guard consolidation (rjwalters/repo#30), kept as close to that suite as
 # possible so behaviour parity with the Loom guard is provable. Bare issue refs
-# (#3553 etc.) refer to rjwalters/loom; repo#NN refers to rjwalters/repo.
+# (#3553 etc.) refer to rjwalters/loom; repo#NN refers to 2AMLogic/repo.
 # Repo-Skills-specific additions (REPO_* env naming, dual-config precedence,
 # the repo#29 pipe-to-shell fix) are appended at the end. The legacy LOOM_*
 # env cases throughout are a deliberate part of the contract under test.

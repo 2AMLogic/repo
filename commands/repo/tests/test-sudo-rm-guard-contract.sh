@@ -573,7 +573,7 @@ chmod +x "$SHIM_BIN/sudo" "$SHIM_BIN/visudo"
 
 DROPIN_STANDIN="$SCRATCH/fake-sudoers.d/alice-nopasswd"
 mkdir -p "$(dirname "$DROPIN_STANDIN")"
-STANDIN_CONTENT='# Installed by /repo:sudo (rjwalters/repo) — see .claude/commands/repo/sudo.md
+STANDIN_CONTENT='# Installed by /repo:sudo (2AMLogic/repo) — see .claude/commands/repo/sudo.md
 alice ALL=(ALL) NOPASSWD: ALL'
 install_standin() {
     # rm first: the stand-in is left at 0440 like a real drop-in, so a second
