@@ -568,14 +568,14 @@ if command -v jq >/dev/null 2>&1; then
         "/elsewhere/$REL" "$(jq -r '.hooks.SessionStart[1].hooks[0].command' "$S")"
 fi
 assert_contains "doc defines the absolute spelling" "$PRE_SECTION" 'ABS="$(git rev-parse --show-toplevel)'
-assert_contains "2a accepts either spelling" "$PRE_SECTION" '.command == $c or .command == $abs'
-assert_contains "2b excludes both spellings" "$PRE_SECTION" '.command != $c and .command != $abs'
+assert_contains "2a accepts either spelling" "$PRE_SECTION" 'is_ours($c) or is_ours($abs)'
+assert_contains "2b excludes both spellings" "$PRE_SECTION" '((is_ours($c) or is_ours($abs)) | not)'
 assert_matches "check 3 expands CLAUDE_PROJECT_DIR before test -x" "$PRE_FLAT" \
     'Expand `\$\{CLAUDE_PROJECT_DIR\}`[[:space:]]*to the repo root'
 assert_contains "install.sh accepts either spelling in its idempotency test" \
-    "$(cat "$INSTALL")" '.command == $c or .command == $abs'
+    "$(cat "$INSTALL")" 'is_ours($c) or is_ours($abs)'
 assert_contains "install.sh coexistence excludes both spellings" \
-    "$(cat "$INSTALL")" '.command != $c and .command != $abs'
+    "$(cat "$INSTALL")" '((is_ours($c) or is_ours($abs)) | not)'
 
 # ---------------------------------------------------------------------------
 # 10. What handoff.md now depends on still exists and still says so
