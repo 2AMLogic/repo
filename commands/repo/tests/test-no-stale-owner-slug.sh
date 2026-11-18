@@ -30,8 +30,11 @@ cd "$REPO_ROOT"
 
 # The consumer-visible surface install.sh copies (plus the canonical policies/
 # directory /repo:org-policy reads from GitHub — same surface the VERSION-bump
-# CI gate watches). .loom/ is vendored from the Loom repo and out of scope.
-SCAN_PATHS=(install.sh uninstall.sh scripts/repo commands hooks lib skills policies)
+# CI gate watches). README.md and INSTALLER-CONTRACT.md are not installed, but
+# they are the package's consumer-facing self-descriptions, so a stale slug
+# there drifts the same way. .loom/ is vendored from the Loom repo and out of
+# scope.
+SCAN_PATHS=(install.sh uninstall.sh scripts/repo commands hooks lib skills policies README.md INSTALLER-CONTRACT.md)
 
 PASS=0; FAIL=0
 

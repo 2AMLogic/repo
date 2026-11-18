@@ -1,6 +1,6 @@
 # Tool-Package Installer Contract
 
-**Status:** normative, v1 · **Owner:** [Repo Skills](https://github.com/rjwalters/repo) · **Applies to:** Loom, Anvil, Repo Skills, squad, kicad-tools, and any future tool package
+**Status:** normative, v1 · **Owner:** [Repo Skills](https://github.com/2AMLogic/repo) · **Applies to:** Loom, Anvil, Repo Skills, squad, kicad-tools, and any future tool package
 
 A **tool package** is a repo that *copies* agent-facing surfaces — skills,
 commands, agents, hooks, scripts — into a **consumer repo**. This document
