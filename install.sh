@@ -316,7 +316,7 @@ GUARD_IS_OURS_JQ='def is_ours($c): ((.command // "") | (. == $c or . == ("\"" + 
 # A single implementation is what makes that guarantee possible. (Defined here,
 # ahead of the --dry-run enumeration, so the preview can use it too.)
 #
-# The `.command != $c` filter matters on a REPEAT install: by the second run
+# The `is_ours($c) | not` filter matters on a REPEAT install: by the second run
 # our own hook IS already wired, and without excluding it here every reinstall
 # would misdetect its own prior wiring as "another" guard and quietly stop
 # copying/maintaining its own file.
@@ -597,10 +597,11 @@ merge_settings_sessionstart_hook() {
 
   # Idempotent re-install: our exact command is already present under EVERY
   # source matcher we manage (a partial wiring falls through and is completed).
-  if jq -e --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" '
+  # is_ours accepts the bare and the double-quoted form of BOTH spellings.
+  if jq -e --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" "$GUARD_IS_OURS_JQ"'
         (.hooks.SessionStart // []) as $ss |
         ($sources | all(. as $m | $ss | any(.[]?;
-          (.matcher == $m) and ((.hooks // []) | any(.[]?; .command == $c or .command == $abs)))))
+          (.matcher == $m) and ((.hooks // []) | any(.[]?; is_ours($c) or is_ours($abs))))))
       ' "$settings" >/dev/null 2>&1; then
     info "SessionStart handoff hook already wired in .claude/settings.json (no change)"
     return
@@ -608,23 +609,23 @@ merge_settings_sessionstart_hook() {
 
   # Coexistence: a DIFFERENT session-start-handoff.sh is already wired (e.g. a
   # copy living at another path). Defer rather than surfacing the note twice.
-  if jq -e --arg c "$cmd" --arg abs "$abs" '
+  if jq -e --arg c "$cmd" --arg abs "$abs" "$GUARD_IS_OURS_JQ"'
         (.hooks.SessionStart // []) | any(.[]?;
           (.hooks // []) | any(.[]?;
-            ((.command // "") | test("session-start-handoff\\.sh")) and (.command != $c and .command != $abs)))
+            ((.command // "") | test("session-start-handoff\\.sh")) and ((is_ours($c) or is_ours($abs)) | not)))
       ' "$settings" >/dev/null 2>&1; then
     info "A handoff SessionStart hook is already wired in .claude/settings.json — deferring to it (not adding a duplicate)"
     return
   fi
 
   tmp="$(mktemp)"
-  if jq --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" '
+  if jq --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" "$GUARD_IS_OURS_JQ"'
         .hooks //= {} |
         .hooks.SessionStart //= [] |
         reduce ($sources[]) as $m (.;
           if (.hooks.SessionStart | any(.[]?; .matcher == $m))
           then .hooks.SessionStart |= map(
-            if (.matcher == $m) and (((.hooks // []) | any(.[]?; .command == $c or .command == $abs)) | not)
+            if (.matcher == $m) and (((.hooks // []) | any(.[]?; is_ours($c) or is_ours($abs))) | not)
             then .hooks = ((.hooks // []) + [{type: "command", command: $c}])
             else . end)
           else .hooks.SessionStart += [{matcher: $m, hooks: [{type: "command", command: $c}]}]

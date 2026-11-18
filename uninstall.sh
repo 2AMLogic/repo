@@ -180,7 +180,7 @@ if [[ -f "$TARGET/.claude/settings.json" ]] && \
   echo "  .claude/settings.json PreToolUse guard entry"
 fi
 if [[ -f "$TARGET/.claude/settings.json" ]] && \
-   jq -e --arg c "$SESSIONSTART_HOOK_CMD" '(.hooks.SessionStart // []) | any(.[]?; (.hooks // []) | any(.[]?; .command == $c))' \
+   jq -e --arg c "$SESSIONSTART_HOOK_CMD" "$IS_OURS_JQ"'(.hooks.SessionStart // []) | any(.[]?; (.hooks // []) | any(.[]?; is_ours($c)))' \
      "$TARGET/.claude/settings.json" >/dev/null 2>&1; then
   echo "  .claude/settings.json SessionStart handoff entry"
 fi

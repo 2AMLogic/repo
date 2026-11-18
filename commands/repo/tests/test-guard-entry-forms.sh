@@ -65,6 +65,11 @@ for form in unquoted quoted; do
     HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" -y --no-codex "$T" >/dev/null 2>&1 </dev/null
     N="$(jq '[.hooks.PreToolUse[]?.hooks[]?] | length' "$T/.claude/settings.json")"
     assert_eq "install keeps exactly one guard entry when only ours is wired ($form)" "1" "$N"
+    # Entry count alone passes on the unfixed tree too (it mis-sees our own entry
+    # as foreign, defers, and deletes the script while the entry survives), so
+    # also require the guard script to still be present (repo#837).
+    if [[ -f "$T/.claude/skills/repo/hooks/guard-destructive.sh" ]]; then SE=yes; else SE=no; fi
+    assert_eq "install keeps the guard script when only ours is wired ($form)" "yes" "$SE"
 
     # uninstall.sh
     T="$SCRATCH/uninst-$form"; fixture "$T" "$C" yes
@@ -73,6 +78,40 @@ for form in unquoted quoted; do
     assert_not_contains "uninstall removes the $form entry" "$OUT" "skills/repo/hooks/guard-destructive.sh"
     assert_contains "uninstall keeps the other guard" "$OUT" "$OTHER"
     assert_contains "uninstall keeps unrelated hooks" "$OUT" "$UNRELATED"
+
+    # SessionStart handoff entry (repo#837): the same two forms must be
+    # recognised by the uninstall listing and by a reinstall (no duplicate).
+    ss_cmds() { jq -r '[.hooks.SessionStart[]?.hooks[]?.command] | join("\n")' "$1/.claude/settings.json"; }
+    # Rewrite every SessionStart command that is ours into the form under test.
+    requote() {
+        local f="$1/.claude/settings.json" tmp
+        tmp="$(mktemp)"
+        jq --arg q "$2" '(.hooks.SessionStart[]?.hooks[]?.command |= (
+            if test("session-start-handoff\\.sh") then (gsub("^\"|\"$"; "") | if $q == "quoted" then "\"" + . + "\"" else . end) else . end))' \
+          "$f" >"$tmp" && mv "$tmp" "$f"
+    }
+
+    T="$SCRATCH/ss-inst-$form"; mkdir -p "$T"; git_fixture_init "$T"
+    HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" -y --no-codex "$T" >/dev/null 2>&1 </dev/null
+    requote "$T" "$form"
+    SS_BEFORE_N="$(jq '[.hooks.SessionStart[]?.hooks[]?] | length' "$T/.claude/settings.json")"
+    assert_contains "SessionStart fixture carries the $form command" "$(ss_cmds "$T")" "session-start-handoff.sh"
+    SS_BEFORE="$(cksum <"$T/.claude/settings.json")"
+    INST_OUT="$(HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" -y --no-codex "$T" 2>&1 </dev/null)"
+    # Unfixed, the quoted entry is not recognised as ours and install reports
+    # "deferring to it" (a foreign hook) instead of "already wired".
+    assert_contains "reinstall recognises the $form SessionStart entry as already wired" "$INST_OUT" "SessionStart handoff hook already wired"
+    assert_not_contains "reinstall does not treat the $form SessionStart entry as foreign" "$INST_OUT" "A handoff SessionStart hook is already wired"
+    SS_AFTER_N="$(jq '[.hooks.SessionStart[]?.hooks[]?] | length' "$T/.claude/settings.json")"
+    assert_eq "reinstall does not duplicate the $form SessionStart entry" "$SS_BEFORE_N" "$SS_AFTER_N"
+    assert_eq "reinstall leaves SessionStart $form settings.json untouched" "$SS_BEFORE" "$(cksum <"$T/.claude/settings.json")"
+
+    T="$SCRATCH/ss-uninst-$form"; mkdir -p "$T"; git_fixture_init "$T"
+    HOME="$FAKE_HOME" bash "$REPO_ROOT/install.sh" -y --no-codex "$T" >/dev/null 2>&1 </dev/null
+    requote "$T" "$form"
+    OUT="$( cd "$T" && HOME="$FAKE_HOME" bash "$REPO_ROOT/uninstall.sh" -y "$T" 2>&1 </dev/null )"
+    assert_contains "uninstall lists the $form SessionStart entry" "$OUT" "  .claude/settings.json SessionStart handoff entry"
+    assert_not_contains "uninstall removes the $form SessionStart entry" "$(ss_cmds "$T")" "session-start-handoff.sh"
 done
 
 echo ""

@@ -65,16 +65,18 @@ jq -e . .claude/settings.json >/dev/null   # malformed, or genuinely unwired?
 
 # 2a. Our command (either spelling), under every matcher we manage.
 jq -e --arg c "$HOOK" --arg abs "$ABS" '
+      def is_ours($c): ((.command // "") | (. == $c or . == ("\"" + $c + "\"")));
       (.hooks.SessionStart // []) as $ss |
       (["startup","resume"] | all(. as $m | $ss | any(.[]?;
-        (.matcher == $m) and ((.hooks // []) | any(.[]?; .command == $c or .command == $abs)))))
+        (.matcher == $m) and ((.hooks // []) | any(.[]?; is_ours($c) or is_ours($abs))))))
     ' .claude/settings.json
 
 # 2b. Only if 2a fails: is a DIFFERENT session-start-handoff.sh already wired?
 jq -e --arg c "$HOOK" --arg abs "$ABS" '
+      def is_ours($c): ((.command // "") | (. == $c or . == ("\"" + $c + "\"")));
       (.hooks.SessionStart // []) | any(.[]?;
         (.hooks // []) | any(.[]?;
-          ((.command // "") | test("session-start-handoff\\.sh")) and (.command != $c and .command != $abs)))
+          ((.command // "") | test("session-start-handoff\\.sh")) and ((is_ours($c) or is_ours($abs)) | not)))
     ' .claude/settings.json
 
 # 3. Is the script that will actually run present and executable?
