@@ -19,13 +19,13 @@ at release time, never hardcoded, so this works in any repo.
 /repo:release                  # Interactive release from the default branch
 ```
 
-`/repo:release` takes **no arguments** — any text passed after the command name
-(e.g. `/repo:release minor`) is ignored, because the invocation-argument
-substitution would rewrite the literal shell/awk snippets below. Select the
-bump level interactively at the Phase 4 confirmation prompt instead of passing
-it on the command line. (This is also why every snippet below spells shell
-positionals as `"${1}"` and awk fields as `$(0)`/`$(1)` — those forms are not
-substitution targets.)
+`/repo:release` takes **no arguments**. Because nothing below is an argument
+placeholder, any text passed after the command name is not substituted into the
+snippets — it is appended to the prompt verbatim as an `ARGUMENTS:` note, so
+**do not pass a bump level**: it is not a reliable way to select one, and it is
+not discarded either. Select the bump level interactively at the Phase 4
+confirmation prompt. (Every snippet below spells shell positionals as `"${1}"`
+and awk fields as `$(0)`/`$(1)`, which are not substitution targets.)
 
 ## Phase 0 — Load project release policy
 
