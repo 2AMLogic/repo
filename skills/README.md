@@ -26,7 +26,8 @@ ls commands/repo/                 # confirm the command roster hasn't shifted
 ## Frontmatter field reference
 
 Every `SKILL.md` and `commands/<domain>/*.md` file in this repo opens with the
-same five-key YAML frontmatter block. `skills/repo/SKILL.md`'s block, as of the
+same core five-key YAML frontmatter block; nine command files add a sixth key
+(see below). `skills/repo/SKILL.md`'s block, as of the
 commit above, is:
 
 ```yaml
@@ -37,10 +38,14 @@ type: skill
 user-invocable: false
 ```
 
-Every file under `commands/repo/*.md` carries the same four keys with
-`type: command` and `user-invocable: true` instead (verified: all 24 command
-files use exactly this five-key shape — `name`, `description`, `domain`,
-`type`, `user-invocable` — no file in this repo adds or omits a key).
+Every file under `commands/repo/*.md` carries the same five keys with
+`type: command` and `user-invocable: true` instead. As of repo#832
+(2026-11-17), nine rarely-dispatched command files add one more key,
+`disable-model-invocation: true` (see its table row below): `sudo`,
+`browser`, `host-optimize`, `org-policy`, `readme`, `orphans`, `links`,
+`gitignore`, `branches`. The other 15 command files still use exactly the
+five-key shape — `name`, `description`, `domain`, `type`, `user-invocable`
+— and no file omits any of those five keys.
 
 **Mechanism check first, before classifying anything**: `install.sh` copies
 these files **byte-for-byte** — it does not parse, branch on, or template any
@@ -61,14 +66,15 @@ does it exist purely to satisfy a Claude-Code-specific discovery contract?
 | `domain` | `repo` (only value in this repo; other tool packages, e.g. Loom/Anvil, would use their own) | **Runtime-neutral, but repo-authored convention, not a runtime contract** | This key groups all of one tool package's skill + command files under one namespace tag. Neither Claude Code's nor (so far as verified here) Codex's discovery mechanism reads `domain` — it exists so this repo's own docs and tests can group files programmatically. Safe to carry forward into a Codex adapter unchanged, but don't assume Codex parses it; it is metadata this repo invented, not a key either runtime's spec defines. |
 | `type` | `skill` (the one `SKILL.md`) / `command` (every `commands/repo/*.md` file) | **Claude-specific, as currently encoded** | The two values name **Claude Code's own install-target split**: `type: skill` marks a file destined for `.claude/skills/<domain>/SKILL.md` (Claude's automatic, model-triggered Skill-discovery surface); `type: command` marks a file destined for `.claude/commands/<domain>/<verb>.md` (Claude's explicit `/domain:verb` slash-command surface). The *distinction* this key is standing in for — "one canonical, domain-wide workflow description" vs. "a single, explicitly user-invocable verb" — is plausibly a concept a Codex adapter would also need to express. But the two literal values (`skill`, `command`) are Claude Code vocabulary, not a runtime-neutral enum; a Codex adapter should not assume `type: command` means anything to Codex's own registration format without translating it first. |
 | `user-invocable` | `false` (the `SKILL.md`) / `true` (every command file) | **Claude-specific, as currently encoded** | Distinguishes Claude Code's two discovery paths: `false` means this file is discovered and triggered automatically by Claude Code's own Skill-matching (nothing types `/repo` to invoke it); `true` means the file registers an explicit `/repo:<verb>` slash command a user types directly. The underlying concept — "invoked automatically by the agent's own routing" vs. "invoked explicitly by the user" — may have a Codex equivalent, but nothing in this repo enforces or reads this key outside one self-test (`test-scrub-contract.sh` asserting `scrub.md` is `user-invocable: true`) and doc convention. Treat the *boolean value* as Claude-Code-specific until a Codex adapter defines its own equivalent, rather than assuming it round-trips. |
+| `disable-model-invocation` | `true` on the nine rarely-dispatched command files only (repo#832); absent everywhere else | **Claude-specific, as currently encoded** | The complement of `user-invocable`: `true` means the command is kept out of the model-visible skill listing and cannot be invoked through the Skill tool — an operator can still type `/repo:<verb>` (verified against the Claude Code 2.1.326 binary: the `skill_listing` composer filters `!disableModelInvocation`, and the Skill-tool gate rejects model-initiated calls on flagged commands as "reserved for explicit user invocation" while user-typed ones pass). It exists so a command that stays reachable when typed can stop paying its name+description context cost in every session. Nothing in this repo's own scripts reads the key; like `type` and `user-invocable`, the Codex renderer drops it rather than passing an unknown top-level key into the Agent Skills format, which has no equivalent concept — Codex's `repo-<verb>` listing is unchanged. |
 
 **Bottom line for a Codex adapter**: `name` and `description` are safe to
 reuse as-is — they carry the actual semantic content a second runtime's
 discovery needs. `domain` is safe to carry forward as an inert grouping tag.
-`type` and `user-invocable` encode Claude Code's own two discovery surfaces
-specifically; a Codex adapter needs its own equivalent concept (if any) rather
-than assuming these values mean the same thing to Codex, or mean anything to
-Codex's discovery mechanism at all.
+`type`, `user-invocable`, and `disable-model-invocation` encode Claude Code's
+own discovery surfaces specifically; a Codex adapter needs its own equivalent
+concepts (if any) rather than assuming these values mean the same thing to
+Codex, or mean anything to Codex's discovery mechanism at all.
 
 ## The "canonical source, thin per-runtime alias" pattern
 
@@ -134,8 +140,12 @@ both are worth knowing before you build a *third* runtime's adapter:
 Nothing else in the table changed in practice: `description` is copied verbatim,
 `domain` is carried forward (under the spec's `metadata` map, which exists for
 exactly this kind of client-specific key, rather than as an unknown top-level
-one), and `type` / `user-invocable` are dropped as the Claude-Code vocabulary
-the table already calls them. Confirming the wider claim this section makes: no
+one), and `type` / `user-invocable` — and, since repo#832,
+`disable-model-invocation` on the nine files that carry it — are dropped as the
+Claude-Code vocabulary the table already calls them. The renderer reads only
+`name` / `description` / `domain` out of the frontmatter, so new
+Claude-specific keys need no adapter change; they are simply not carried over.
+Confirming the wider claim this section makes: no
 Claude-specific *syntax* in the `SKILL.md` or `commands/repo/*.md` bodies blocked
 the adapter — the bodies are installed unmodified for both runtimes.
 

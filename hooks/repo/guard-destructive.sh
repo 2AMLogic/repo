@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # guard-destructive.sh - PreToolUse hook to block destructive agent commands
 #
-# Part of Repo Skills (https://github.com/rjwalters/repo), and the CANONICAL
+# Part of Repo Skills (https://github.com/2AMLogic/repo), and the CANONICAL
 # generic destructive-command guard (rjwalters/repo#30): Loom and other tooling
 # defer to this copy rather than shipping their own. It is installed by
 # install.sh into .claude/skills/repo/hooks/ and wired into the consumer repo's
@@ -11,7 +11,7 @@
 # splitting, literal-text redaction, the read-only fast path, toggles, decision
 # telemetry) was developed in rjwalters/loom and consolidated here. Bare issue
 # refs like (#3553)/(#3771) refer to rjwalters/loom issues; refs written
-# repo#NN refer to rjwalters/repo.
+# repo#NN refer to 2AMLogic/repo.
 #
 # =============================================================================
 # STABLE INTERFACE (the contract downstream tools — e.g. Loom — rely on)
@@ -3423,7 +3423,7 @@ dequote_inert_spans() {
 # the shape above is the one this repo's own role prompts prescribe.
 #
 # This is closely related to `.loom/hooks/guard-destructive-generic.sh`'s own
-# mask_flag_cat_heredocs() (vendored from upstream Repo Skills rjwalters/repo
+# mask_flag_cat_heredocs() (vendored from upstream Repo Skills 2AMLogic/repo
 # #5216, which independently closed conditions 1-4 of this same gap) — this
 # port additionally carries condition 5 (#317's AC #3 nested-smuggling floor);
 # keep the two files' behavior in sync.

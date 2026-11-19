@@ -587,7 +587,7 @@ echo "1.0.0" >"$CSRC/VERSION"
 do_install "$CSRC" "$CTGT"
 
 assert_contains "a fresh install's CLAUDE.md block reports the install version" \
-    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/rjwalters/repo) v1.0.0 installed"
+    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/2AMLogic/repo) v1.0.0 installed"
 
 run_resync "$CTGT" --dry-run
 assert_eq "dry-run on a freshly-installed CLAUDE.md block is in sync" "0" "$RS_RC"
@@ -605,7 +605,7 @@ run_resync "$CTGT"
 assert_eq "apply after a version bump exits 0" "0" "$RS_RC"
 assert_contains "apply reports CLAUDE.md as synced" "$RS_OUT" "synced    CLAUDE.md"
 assert_contains "CLAUDE.md's block now reads the new version" \
-    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/rjwalters/repo) v2.0.0 installed"
+    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/2AMLogic/repo) v2.0.0 installed"
 assert_not_contains "a resync from N to M leaves no vN text in CLAUDE.md" \
     "$(cat "$CTGT/CLAUDE.md")" "v1.0.0"
 

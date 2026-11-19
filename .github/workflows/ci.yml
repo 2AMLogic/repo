@@ -1,10 +1,11 @@
 name: CI
 
 # Runs the repository's full test suite (`pnpm test` -> hooks/repo/tests/run.sh,
-# the ~532-case guard/handoff/loss-check suite) on every pull request and on
-# every push to the default branch. Before this workflow the suite only ran when
-# a human remembered to run it locally, so `gh pr checks` reported "no checks
-# reported" and PRs merged unverified (issue #48).
+# the ~532-case guard/handoff/loss-check suite) on every pull request, on every
+# push to the default branch, and on every merge-group commit when a GitHub
+# merge queue evaluates a batch (#841). Before this workflow the suite only ran
+# when a human remembered to run it locally, so `gh pr checks` reported "no
+# checks reported" and PRs merged unverified (issue #48).
 #
 # The suite is exercised on every push AND every PR (not split): it takes ~60s,
 # well within a single job's budget, so there is no reason to split coverage and
@@ -33,6 +34,13 @@ on:
   push:
     branches:
       - main
+  # Merge-queue qualification (#841): when a GitHub merge queue evaluates a
+  # group, re-run every job below on the queue's combined merge commit (base +
+  # all batched PR heads) so the suite validates the tree that would actually
+  # land, not just individual PR heads. `checks_requested` is the only
+  # merge_group event type.
+  merge_group:
+    types: [checks_requested]
 
 # Cancel superseded runs on the same ref to save runner minutes — but ONLY for
 # pull requests. An unconditional `cancel-in-progress: true` also applies to the
@@ -40,8 +48,19 @@ on:
 # previous `main` run in this group and intermediate merged commits end up with
 # no completed CI run at all. A regression introduced by a middle merge then
 # surfaces later, attributed to the wrong commit (issue #507).
+#
+# Merge-group runs (#841) get their own concurrency group keyed by the group's
+# unique head SHA — one run per queue batch — and `cancel-in-progress` stays
+# false for them, so a later PR or push run can neither cancel nor supersede a
+# merge-group run: a queue decision must be reported, never raced. PR and push
+# groups keep the exact group string they had before.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{
+      github.event_name == 'merge_group'
+      && format('ci-merge-group-{0}', github.event.merge_group.head_sha)
+      || format('ci-{0}-{1}', github.workflow, github.ref)
+    }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -63,6 +82,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        # No `ref:` override on purpose: actions/checkout defaults to
+        # github.sha, which on a `merge_group` event is the queue's combined
+        # merge commit (#841) — exactly the tree a merge decision needs tested.
+        # On pull_request/push events this is unchanged (PR merge ref / pushed
+        # commit).
 
       # The test harness (hooks/repo/tests/run.sh) hard-fails with
       # "FATAL: jq is required" if jq is absent. ubuntu-latest ships jq, but
@@ -98,44 +122,49 @@ jobs:
       - name: Run test suite
         run: pnpm test
 
-  # macOS (BSD / one-true-awk) run of the repo-remote.sh suite (#771, follow-up
-  # to #754 / #762). #754: `prune --yes` emptied ~/.ssh/config under macOS awk
-  # while Linux CI (gawk/mawk) stayed green, because BSD awk rejects a newline
-  # inside `awk -v`. The Linux suite only emulates that with a shim awk; this
-  # job runs the real /usr/bin/awk. It also guards the `awk -v` call sites in
-  # lib/ that consumers run on Macs.
+  # macOS (bash 3.2, BSD userland) run of the FULL hooks/repo/tests/run.sh suite
+  # (#805; supersedes the single-suite job from #771, a follow-up to #754 / #762).
+  # Two defects were macOS-only and invisible to Linux CI: #754 (`prune --yes`
+  # emptied ~/.ssh/config because BSD awk rejects a newline inside `awk -v`) and
+  # #755 (guard cases failed on the logical-vs-physical /private/var path). The
+  # installed scripts and hooks run on consumers' Macs, so the whole suite runs
+  # here against the real /usr/bin/awk and /usr/bin/sed.
   #
-  # Bash decision: invoke the suite with /bin/bash, the system bash 3.2 that a
+  # Bash decision: invoke run.sh with /bin/bash, the system bash 3.2 that a
   # stock Mac has, NOT Homebrew bash 5. It is the worst case: a script passing
   # on 3.2 passes on 5. Runner images may put Homebrew bash first on PATH, so
-  # the interpreter is named explicitly instead of relying on `env bash`.
+  # the interpreter is named explicitly instead of relying on `env bash`. We
+  # call run.sh directly rather than `pnpm test` so no Node/pnpm is needed.
   #
   # Visible, NON-required check, same policy as the `test` job (#73): do not add
   # this to required status checks. A `paths:` filter is workflow-wide (it would
   # also skip the Linux jobs), so this job runs on every PR/push; macOS minutes
-  # are free on a public repo and it runs only this one suite.
-  # Out of scope: the full `pnpm test` hooks/guard suite on macOS.
+  # are free on a public repo.
   test-macos:
-    name: test-repo-remote.sh (macOS, BSD awk)
+    name: hooks/repo/tests/run.sh (macOS, bash 3.2, BSD userland)
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Report toolchain (proves BSD awk and bash 3.2 are in use)
+      - name: Report toolchain (proves BSD awk/sed and bash 3.2 are in use)
         run: |
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
           echo "awk on PATH: $(command -v awk)"
           ls -l /usr/bin/awk
           # one-true-awk has no --version; -version is its flag. Tolerate failure.
           /usr/bin/awk -version 2>&1 || /usr/bin/awk --version 2>&1 || true
+          # BSD sed has no --version; report which binary resolves.
+          echo "sed on PATH: $(command -v sed)"
+          ls -l /usr/bin/sed
           /bin/bash --version | head -1
           git --version
 
-      - name: Run test-repo-remote.sh with system awk and bash
+      - name: Run hooks/repo/tests/run.sh with system bash, awk and sed
         run: |
-          # Put /usr/bin first so `awk` resolves to the BSD one even if a
-          # Homebrew gawk is on the image.
-          PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" /bin/bash commands/repo/tests/test-repo-remote.sh
+          # Put /usr/bin first so awk/sed resolve to the BSD ones even if
+          # Homebrew gawk/gnu-sed are on the image.
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" /bin/bash hooks/repo/tests/run.sh
 
   # Adopts loom's "VERSION on main is the release" CI gate (#387, mirroring
   # loom#5874): any PR that changes this repo's installed surface (commands/,
@@ -151,10 +180,18 @@ jobs:
   # the same reason documented above the `test` job (issue #73): this is a
   # solo-operator repo where merge-pr.sh already treats a red check as a stop
   # signal, so a visible, non-required check is the right level of force here.
+  #
+  # Also runs on merge groups (#841), deriving base/head from
+  # github.event.merge_group so the gate validates the combined tree a queue
+  # would merge, with all of a batch's commits visible. One deliberate
+  # asymmetry: a merge_group event carries no PR metadata, so PR_BODY is empty
+  # there and the marker can only be honored from a commit message in the
+  # group — the PR-body marker path keeps working on pull_request runs. Only
+  # real shas reach the script; nothing event-specific is faked.
   version-bump-gate:
     name: consumer-visible changes require a VERSION bump
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -162,12 +199,26 @@ jobs:
           # Full history so the PR's base and head shas both resolve locally
           # — check-installed-surface-version-bump.sh diffs base..head
           # directly and needs both commits present, not just their ancestry.
+          # On merge_group events the checkout defaults to the group's
+          # combined merge commit, whose ancestry includes every batched PR's
+          # commits, so both the diff and the commit-message marker scan see
+          # the whole group.
           fetch-depth: 0
 
       - name: Check installed-surface VERSION bump
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: |
-          ./scripts/check-installed-surface-version-bump.sh \
-            --base "${{ github.event.pull_request.base.sha }}" \
-            --head "${{ github.event.pull_request.head.sha }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          else
+            base="$GROUP_BASE_SHA"
+            head="$GROUP_HEAD_SHA"
+          fi
+          ./scripts/check-installed-surface-version-bump.sh --base "$base" --head "$head"

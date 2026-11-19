@@ -836,11 +836,20 @@ assert_eq   "no cloud mutation in dry run" "0" "$(grep -c 'run-instances' "$MOCK
 echo ""
 echo "-- JSON output shape on a real (mocked) provision --"
 # ---------------------------------------------------------------------------
-run_rr MOCK_AWS_NEW_ID=i-0abc123 MOCK_AWS_STATE=None -- up --yes --json
+# MOCK_AWS_PUBLIC_IP makes this a REAL alias write, which repo#827's
+# ssh_alias_written:true assertions require: without it the public-IP lookup
+# answers the canned "None" (MOCK_AWS_STATE), which since repo#830 is the
+# deliberate no-stanza skip and reports false (covered by its own tests).
+run_rr MOCK_AWS_NEW_ID=i-0abc123 MOCK_AWS_STATE=None MOCK_AWS_PUBLIC_IP=203.0.113.45 -- up --yes --json
 assert_eq   "up --yes provisions -> exit 0" "0" "$RR_RC"
 assert_contains "JSON has instance id"   "$RR_OUT" '"instance_id":"i-0abc123"'
 assert_contains "JSON has a public ip field" "$RR_OUT" '"public_ip"'
 assert_contains "JSON has the ssh alias"  "$RR_OUT" '"ssh_alias":"repo-remote-myrepo"'
+assert_contains "JSON reports the alias was written (repo#827)" "$RR_OUT" '"ssh_alias_written":true'
+# repo#827 test-plan edge: the field is APPENDED -- every pre-existing field
+# keeps its order and ssh_alias_written is the last key before the close brace.
+assert_matches "JSON field order: ssh_alias_written is appended last (repo#827)" \
+  "$RR_OUT" '"ssh_alias_written":true\}$'
 assert_contains "JSON has estimated hourly cost" "$RR_OUT" '"estimated_hourly_cost_usd":0.384'
 assert_contains "JSON reports it created (not reused)" "$RR_OUT" '"reused":false'
 
@@ -2128,6 +2137,92 @@ write_repo_env "REPO_REMOTE_INSTANCE_TYPE=m5.2xlarge"
 
 # ---------------------------------------------------------------------------
 echo ""
+echo "-- gcp_up reports a rejected SSH alias write (repo#824) --"
+# ---------------------------------------------------------------------------
+# repo#824: gcp_up() ignored write_ssh_alias()'s exit status, so a rejected
+# alias write was reported as a plain successful up while the SSH config was
+# left untouched. Mirror aws_up()'s non-fatal direct-IP shape: log loudly,
+# still exit 0 -- the instance really is up, only the alias is missing.
+# MOCK_SSH_G_FAIL fails only write_ssh_alias()'s `ssh -G` parse check, so
+# this isolates the rejected-alias branch from everything else.
+GCPREJ_CFG="$SCRATCH/gcp_reject_ssh_config"
+rm -f "$GCPREJ_CFG" "$GCPREJ_CFG.lock"
+printf 'Host repo-remote-preexisting\n    HostName 203.0.113.80\n    User ubuntu\n' >"$GCPREJ_CFG"
+GCPREJ_BEFORE="$(cat "$GCPREJ_CFG")"
+write_repo_env "${GCP_ENV[@]}"
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPREJ_CFG" MOCK_GCP_IP=203.0.113.81 MOCK_SSH_G_FAIL=1 -- up --yes --json
+assert_eq   "gcp: up with a rejected SSH alias write still succeeds (non-fatal)" "0" "$RR_RC"
+assert_contains "gcp: up reports that the SSH alias write was rejected" \
+  "$RR_ERR" "SSH alias write for repo-remote-myrepo was rejected"
+assert_contains "gcp: the rejection message names the alias the user would have used" \
+  "$RR_ERR" "ssh repo-remote-myrepo"
+assert_eq   "gcp: a rejected alias write leaves the pre-existing SSH config untouched" \
+  "$GCPREJ_BEFORE" "$(cat "$GCPREJ_CFG")"
+assert_eq   "gcp: a rejected alias write leaves no lock dir behind" "" \
+  "$( [[ -e "$GCPREJ_CFG.lock" ]] && echo present )"
+# repo#827: same disambiguation on the GCP path -- refused write visible as
+# ssh_alias_written:false, ssh_alias itself still populated.
+assert_eq   "gcp: a rejected alias write reports ssh_alias_written:false" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "gcp: a rejected alias write keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+
+# repo#824 test-plan edge: an empty/None IP is rc 0 with no stanza -- a
+# deliberate skip, not a rejection -- so it must not log the rejected-alias
+# message. repo#830: the skip is also NOT a write, so ssh_alias_written must
+# report false (the field means "a stanza was written in this run") while
+# ssh_alias stays populated, and the human alias line flags it the same way
+# a refusal is flagged.
+GCPNONE_CFG="$SCRATCH/gcp_none_ssh_config"
+rm -f "$GCPNONE_CFG" "$GCPNONE_CFG.lock"
+write_repo_env "${GCP_ENV[@]}"
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPNONE_CFG" MOCK_GCP_IP=None -- up --yes --json
+assert_eq   "gcp: a None IP (no stanza) still exits 0" "0" "$RR_RC"
+assert_not_contains "gcp: a None IP is not reported as a rejected alias write" \
+  "$RR_ERR" "was rejected"
+assert_eq   "gcp: a None IP reports ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "gcp: a None IP keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+assert_eq   "gcp: a None IP writes no stanza (config stays 0 bytes)" "" \
+  "$( [[ -s "$GCPNONE_CFG" ]] && echo present )"
+# Whitespace-only host value: the same deliberate skip (the gcloud mock's
+# ${MOCK_GCP_IP:-...} default cannot express a truly empty value, so the trim
+# edge rides on the whitespace form; the empty form is covered directly by the
+# host_value_missing unit tests and, end to end, by the AWS empty-IP path).
+GCPWS_CFG="$SCRATCH/gcp_ws_ssh_config"
+rm -f "$GCPWS_CFG" "$GCPWS_CFG.lock"
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPWS_CFG" MOCK_GCP_IP='   ' -- up --yes --json
+assert_eq   "gcp: a whitespace-only IP still exits 0" "0" "$RR_RC"
+assert_not_contains "gcp: a whitespace-only IP is not reported as a rejected alias write" \
+  "$RR_ERR" "was rejected"
+assert_eq   "gcp: a whitespace-only IP reports ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "gcp: a whitespace-only IP writes no stanza" "" \
+  "$( [[ -s "$GCPWS_CFG" ]] && echo present )"
+run_rr MOCK_GCP_IP=None -- up --yes
+assert_eq   "gcp: a None IP (human output) still exits 0" "0" "$RR_RC"
+assert_contains "gcp: a None IP (human output) flags the alias as not written (repo#830)" \
+  "$RR_ERR" "repo-remote-myrepo (NOT written to the SSH config)"
+assert_not_contains "gcp: a None IP (human output) logs no rejected-alias message" \
+  "$RR_ERR" "was rejected"
+
+# The success path is unchanged: the stanza lands, no rejection is logged.
+write_repo_env "${GCP_ENV[@]}"
+GCPREJ_OK_CFG="$SCRATCH/gcp_ok_ssh_config"
+rm -f "$GCPREJ_OK_CFG" "$GCPREJ_OK_CFG.lock"
+run_rr REPO_REMOTE_SSH_CONFIG="$GCPREJ_OK_CFG" MOCK_GCP_IP=203.0.113.82 -- up --yes --json
+assert_eq   "gcp: successful alias write still exits 0" "0" "$RR_RC"
+assert_eq   "gcp: successful alias write reports ssh_alias_written:true (repo#827)" "true" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_not_contains "gcp: success logs no rejection" "$RR_ERR" "was rejected"
+assert_contains "gcp: success writes the HostName stanza" \
+  "$(cat "$GCPREJ_OK_CFG" 2>/dev/null)" "HostName 203.0.113.82"
+
+write_repo_env "REPO_REMOTE_INSTANCE_TYPE=m5.2xlarge"
+
+# ---------------------------------------------------------------------------
+echo ""
 echo "-- auth failure stops loudly, no fallback --"
 # ---------------------------------------------------------------------------
 run_rr MOCK_AWS_AUTH_FAIL=1 MOCK_AWS_STATE=None -- up --yes --json
@@ -2150,26 +2245,226 @@ echo "-- write_ssh_alias() concurrency (repo#213) --"
 # write_ssh_alias() directly instead of going through the full `up` flow --
 # there is no need to mock aws/gcp just to exercise this one function.
 CONC_CFG="$SCRATCH/concurrent_ssh_config"
-rm -f "$CONC_CFG" "$CONC_CFG.lock"
+# repo#806: this block used to discard each writer's exit status and stderr
+# (`>/dev/null` on write_ssh_alias, bare `wait`), so CI's one observed loss
+# ("first writer's block survives" failing while beta's stanza landed) could
+# not distinguish "alpha never wrote" (die 4 on lock timeout, ssh -G backstop,
+# any failure inside the writer shell) from "alpha's write was overwritten".
+# Capture each writer's stderr and exit code, assert both exited 0, and dump
+# the captured diagnostics whenever a stanza assertion fails below.
+CONC_A_ERR="$SCRATCH/concurrent_alpha.stderr"
+CONC_B_ERR="$SCRATCH/concurrent_beta.stderr"
+CONC_A_RC_FILE="$SCRATCH/concurrent_alpha.rc"
+CONC_B_RC_FILE="$SCRATCH/concurrent_beta.rc"
+# repo#815: this reset must remove a prior lock of ANY vintage -- the
+# symlink lock, the old mkdir'd lock dir, or a leftover quarantine dir
+# -- and `rm -f` silently fails on all of those that are directories.
+rm -rf "$CONC_CFG.lock"
+rm -f "$CONC_CFG" "$CONC_A_ERR" "$CONC_B_ERR" "$CONC_A_RC_FILE" "$CONC_B_RC_FILE"
 (
   REPO_REMOTE_SSH_CONFIG="$CONC_CFG" bash -c "
     source '$RR'
     NAME=alpha
     write_ssh_alias '10.0.0.1' >/dev/null
-  " &
+  " 2>"$CONC_A_ERR" &
   P1=$!
   REPO_REMOTE_SSH_CONFIG="$CONC_CFG" bash -c "
     source '$RR'
     NAME=beta
     write_ssh_alias '10.0.0.2' >/dev/null
-  " &
+  " 2>"$CONC_B_ERR" &
   P2=$!
-  wait "$P1" "$P2"
+  wait "$P1"; printf '%s' "$?" >"$CONC_A_RC_FILE"
+  wait "$P2"; printf '%s' "$?" >"$CONC_B_RC_FILE"
 )
 CONC_OUT="$(cat "$CONC_CFG" 2>/dev/null || true)"
-assert_contains "concurrent write_ssh_alias: first writer's block survives" "$CONC_OUT" "Host repo-remote-alpha"
-assert_contains "concurrent write_ssh_alias: second writer's block survives" "$CONC_OUT" "Host repo-remote-beta"
-assert_eq "concurrent write_ssh_alias: no leftover lock dir" "" "$( [[ -e "$CONC_CFG.lock" ]] && echo present )"
+CONC_A_RC="$(cat "$CONC_A_RC_FILE" 2>/dev/null || echo missing)"
+CONC_B_RC="$(cat "$CONC_B_RC_FILE" 2>/dev/null || echo missing)"
+# Diagnostics for the stanza assertions: each writer's exit status, its
+# captured stderr (die 4 / log() refusals land here), and the final config.
+conc_diag() {
+  printf 'alpha rc=[%s] stderr=[%s]\n' "$CONC_A_RC" "$(cat "$CONC_A_ERR" 2>/dev/null || true)"
+  printf 'beta rc=[%s] stderr=[%s]\n' "$CONC_B_RC" "$(cat "$CONC_B_ERR" 2>/dev/null || true)"
+  printf 'config=[%s]\n' "$CONC_OUT"
+}
+assert_eq "concurrent write_ssh_alias: alpha writer exited 0" "0" "$CONC_A_RC"
+assert_eq "concurrent write_ssh_alias: beta writer exited 0" "0" "$CONC_B_RC"
+if [[ "$CONC_OUT" == *"Host repo-remote-alpha"* ]]; then
+  ok "concurrent write_ssh_alias: first writer's block survives"
+else
+  no "concurrent write_ssh_alias: first writer's block survives" "missing [Host repo-remote-alpha]; $(conc_diag)"
+fi
+if [[ "$CONC_OUT" == *"Host repo-remote-beta"* ]]; then
+  ok "concurrent write_ssh_alias: second writer's block survives"
+else
+  no "concurrent write_ssh_alias: second writer's block survives" "missing [Host repo-remote-beta]; $(conc_diag)"
+fi
+assert_eq "concurrent write_ssh_alias: no leftover lock" "" "$( [[ -e "$CONC_CFG.lock" || -L "$CONC_CFG.lock" ]] && echo present )"
+
+# ---------------------------------------------------------------------------
+# repo#815 regression: two waiters must not both win the same stale lock.
+#
+# MEASURED mechanism (local, ns-timestamped instrumented traces, see PR):
+# the old mkdir'd-dir lock let two waiters that judged the same stale lock
+# dead each remove the path, the second removal deleting the FIRST waiter's
+# freshly acquired live lock -- both then held the lock, both completed with
+# rc 0, and one written stanza silently vanished: exactly the CI signature
+# (both writers exit 0 while "first/second writer's block survives" fails).
+# The fix makes the lock a pid symlink (born fully registered, so there is
+# no unregistered instant to interfere with), makes the stale break a
+# single-winner atomic rename that deletes a quarantined lock only while its
+# owner is still dead, makes release owned, and makes each writer
+# re-validate ownership before installing its config.
+#
+# Detection needs several waiters: with two waiters the old race window is
+# microsecond-wide (measured: ~0/4 seeded rounds), but with 10 waiters
+# seeded on one stale lock the old code produced overlapping holders in
+# ~2/3 of rounds (measured 20/30 locally), so three rounds give ~96%
+# pre-fix detection while staying green deterministically post-fix.
+# Hold/poll are kept tiny (50ms hold, 10ms poll) so a round costs ~1s
+# serialized.
+CONC2_CFG="$SCRATCH/concurrent2_ssh_config"
+CONC2_LOCK="$CONC2_CFG.lock"
+CONC2_DIR="$SCRATCH/conc2"
+# A definitely-dead pid for the stale seed: spawn and reap it.
+sleep 0 & CONC2_DEAD_PID=$!
+wait "$CONC2_DEAD_PID" 2>/dev/null
+conc2_round() {  # <round> -- seed one stale lock, race 10 waiters at it
+  local r="$1" i p rc w_rc
+  rm -rf "$CONC2_DIR"
+  mkdir -p "$CONC2_DIR"
+  rm -rf "$CONC2_LOCK"
+  ln -s "$CONC2_DEAD_PID" "$CONC2_LOCK"   # the stale seed (pid symlink)
+  local pids=()
+  for i in $(seq 1 10); do
+    REPO_REMOTE_SSH_CONFIG="$CONC2_CFG" REPO_REMOTE_SSH_LOCK_POLL_INTERVAL=0.01 bash -c "
+      # ns_now: portable ns clock (repo#823) -- BSD date emits a literal N for
+      # %N and exits 0, so judge the output shape, never date's exit status.
+      # Defined here (not exported) because this runs in the child shell.
+      ns_now() { local t; t=\"\$(date +%s%N)\"; case \"\$t\" in *[!0-9]*) python3 -c 'import time; print(int(time.time()*1e9))' ;; *) printf '%s' \"\$t\" ;; esac; }
+      source '$RR'
+      acquire_ssh_alias_lock '$CONC2_CFG'
+      printf 'acq %s\n' \$(ns_now)
+      sleep 0.05
+      if ssh_alias_lock_held_by_me '$CONC2_CFG'; then
+        printf 'rel %s\n' \$(ns_now)
+        release_ssh_alias_lock '$CONC2_CFG'
+        printf 'held\n'
+      else
+        # Dispossessed mid-hold: production's write_ssh_alias re-validates
+        # ownership right before installing and refuses loudly (rc 1), so a
+        # dispossessed writer cannot silently lose another writer's stanza.
+        # Here we record the detection and never report a hold interval.
+        printf 'dispossessed\n'
+        release_ssh_alias_lock '$CONC2_CFG'
+      fi
+    " >"$CONC2_DIR/w$i.intervals" 2>"$CONC2_DIR/w$i.err" &
+    pids+=($!)
+  done
+  rc=0
+  for p in "${pids[@]}"; do
+    # repo#818: capture the wait status BEFORE clobbering $? with rc=1 --
+    # "$?" inside the braces is the status of the last assignment, so the
+    # diagnostic always reported "exited 0" even when the real code was 4.
+    wait "$p" || { w_rc=$?; rc=1; printf 'writer pid %s exited %s\n' "$p" "$w_rc" >>"$CONC2_DIR/rc-errors"; }
+  done
+  # Pairwise EFFECTIVE hold-interval overlap check: only waiters that still
+  # pass ownership validation count as holders (a dispossessed waiter is
+  # detected via ssh_alias_lock_held_by_me and, in production, refuses to
+  # write -- it cannot silently lose another writer's stanza). If two
+  # effective holders ever overlap, the lock failed its one job (repo#815).
+  local -a ACQ REL
+  local held=0 disp=0
+  for i in $(seq 1 10); do
+    if grep -q '^dispossessed$' "$CONC2_DIR/w$i.intervals" 2>/dev/null; then
+      disp=$((disp + 1))
+      ACQ[i]=0; REL[i]=0
+    else
+      held=$((held + 1))
+      read -r ACQ[i] REL[i] < <(awk '/^acq/{a=$2}/^rel/{r=$2}END{print a+0, r+0}' "$CONC2_DIR/w$i.intervals" 2>/dev/null)
+    fi
+  done
+  local s e ov_i=0 ov_j=0
+  for ((i = 1; i <= 10; i++)); do for ((p = i + 1; p <= 10; p++)); do
+    s=$(( ACQ[i] > ACQ[p] ? ACQ[i] : ACQ[p] ))
+    e=$(( REL[i] < REL[p] ? REL[i] : REL[p] ))
+    if (( s < e )); then ov_i=$i; ov_j=$p; fi
+  done; done
+  if (( rc != 0 )); then
+    no "concurrent stale-lock acquire (round $r/3): all waiters exit 0" \
+      "rc failure; $(cat "$CONC2_DIR/rc-errors" 2>/dev/null) err samples: $(head -c 300 "$CONC2_DIR"/w*.err 2>/dev/null | tr '\n' ' ')"
+    return 1
+  fi
+  if (( ov_i != 0 )); then
+    no "concurrent stale-lock acquire (round $r/3): effective hold intervals never overlap (no two holders)" \
+      "overlap w${ov_i}=[${ACQ[ov_i]},${REL[ov_i]}] w${ov_j}=[${ACQ[ov_j]},${REL[ov_j]}] (repo#815 two-holder race)"
+    return 1
+  fi
+  if (( held < 6 || disp > 4 )); then
+    no "concurrent stale-lock acquire (round $r/3): waiters either hold validated or are detected as dispossessed" \
+      "held=$held dispossessed=$disp (expected >=6 held, <=4 dispossessed; repo#815)"
+    return 1
+  fi
+  return 0
+}
+CONC2_FAILS=0
+for CONC2_ROUND in 1 2 3; do
+  conc2_round "$CONC2_ROUND" || CONC2_FAILS=$((CONC2_FAILS + 1))
+done
+if (( CONC2_FAILS == 0 )); then
+  ok "concurrent stale-lock acquire: serialized across 3 seeded rounds (3/3)"
+fi
+assert_eq "concurrent stale-lock acquire: stale seed cleared, no leftover lock" "" \
+  "$( [[ -e "$CONC2_LOCK" || -L "$CONC2_LOCK" ]] && echo present )"
+
+# ---------------------------------------------------------------------------
+# repo#818 regression: a LEGACY lock directory must not defeat the lock.
+#
+# MEASURED (PR#818 review, round 2): the pre-#815 mkdir'd lock dir is exactly
+# what the replaced code leaves behind when a writer dies between mkdir and
+# release. Against a directory, `ln -s` creates "$lock/$$" INSIDE it and
+# exits 0, so acquire returned success while holding nothing: every write
+# failed rc 1 ("another writer took over") and the config was never written,
+# and nothing could clear the path (release's readlink reads an empty owner
+# on a directory) -- a permanent wedge, and a regression against the code
+# being replaced, which recovered from this same input. The acquire path must
+# break the residue once (same single-winner quarantine as the symlink stale
+# break) and complete the write.
+LEGACY_CFG="$SCRATCH/legacy_lock_ssh_config"
+LEGACY_LOCK="$LEGACY_CFG.lock"
+# Case 1: dead owner.pid recorded (the seeded reproduction: writer killed
+# between mkdir and release, plus the stray in-dir symlinks the broken code
+# litters -- measured residue: `1682843 1682906 1682960 owner.pid`).
+rm -rf "$LEGACY_LOCK"
+mkdir -p "$LEGACY_LOCK"
+printf '%s\n' "$CONC2_DEAD_PID" >"$LEGACY_LOCK/owner.pid"
+ln -s 424242 "$LEGACY_LOCK/1682843" 2>/dev/null || true
+LEGACY1_OUT="$(REPO_REMOTE_SSH_CONFIG="$LEGACY_CFG" bash -c "
+  source '$RR'
+  NAME=legacylock1
+  write_ssh_alias '10.0.0.41'
+" 2>&1)"
+LEGACY1_RC=$?
+assert_eq "legacy lock dir (dead owner.pid): write_ssh_alias succeeds" "0" "$LEGACY1_RC"
+assert_contains "legacy lock dir (dead owner.pid): stanza actually written" \
+  "$(cat "$LEGACY_CFG" 2>/dev/null || true)" "Host repo-remote-legacylock1"
+assert_eq "legacy lock dir (dead owner.pid): lock path and quarantine cleared" "" \
+  "$(find "$SCRATCH" -maxdepth 1 -name 'legacy_lock_ssh_config.lock*' 2>/dev/null | head -n 1)"
+# Case 2: nameless legacy dir (no owner.pid -- the state the old code's
+# empty-pid guard skipped, wedging every later acquire with die 4).
+rm -rf "$LEGACY_LOCK" "$LEGACY_CFG"
+mkdir -p "$LEGACY_LOCK"
+LEGACY2_OUT="$(REPO_REMOTE_SSH_CONFIG="$LEGACY_CFG" bash -c "
+  source '$RR'
+  NAME=legacylock2
+  write_ssh_alias '10.0.0.42'
+" 2>&1)"
+LEGACY2_RC=$?
+assert_eq "legacy lock dir (no owner.pid): write_ssh_alias succeeds" "0" "$LEGACY2_RC"
+assert_contains "legacy lock dir (no owner.pid): stanza actually written" \
+  "$(cat "$LEGACY_CFG" 2>/dev/null || true)" "Host repo-remote-legacylock2"
+assert_eq "legacy lock dir (no owner.pid): lock path and quarantine cleared" "" \
+  "$(find "$SCRATCH" -maxdepth 1 -name 'legacy_lock_ssh_config.lock*' 2>/dev/null | head -n 1)"
 
 # The temp file used for the read-modify-write swap must be created alongside
 # the target config (same directory as $cfg), not under the default $TMPDIR --
@@ -2280,6 +2575,34 @@ if [[ -s "$E2E_CFG" ]]; then
 else
   ok "up with a None public IP -> no SSH config file was written (nothing to parse)"
 fi
+# repo#830: the None-IP skip wrote no stanza, so the up result must not claim
+# one was -- ssh_alias_written:false while ssh_alias stays populated.
+assert_eq   "up with a None public IP reports ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "up with a None public IP keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+run_rr MOCK_AWS_NEW_ID=i-0e2enone2 MOCK_AWS_STATE=None -- up --yes
+assert_eq   "up with a None public IP (human output) still succeeds" "0" "$RR_RC"
+assert_contains "up with a None public IP (human output) flags the alias as not written (repo#830)" \
+  "$RR_ERR" "repo-remote-myrepo (NOT written to the SSH config)"
+
+# (e2) repo#830: host_value_missing() is the ONE shared no-host-value
+# predicate -- write_ssh_alias() skips the stanza on it (repo#216) and the up
+# call sites report ssh_alias_written:false on it, so its trim-and-compare
+# cannot drift between the two users. Same direct-source shape as the tests
+# above.
+hvm() {
+  REPO_REMOTE_SSH_CONFIG=/dev/null bash -c "
+    source '$RR'
+    host_value_missing \"\$1\" >/dev/null && echo missing || echo present
+  " _ "$1"
+}
+assert_eq "host_value_missing: empty is missing"                  "missing" "$(hvm '')"
+assert_eq "host_value_missing: whitespace-only is missing"        "missing" "$(hvm '   ')"
+assert_eq "host_value_missing: literal None is missing"           "missing" "$(hvm 'None')"
+assert_eq "host_value_missing: whitespace-padded None is missing" "missing" "$(hvm ' None ')"
+assert_eq "host_value_missing: a real IP is present"              "present" "$(hvm '203.0.113.9')"
+assert_eq "host_value_missing: an instance id is present"         "present" "$(hvm 'i-0abc123')"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -2345,6 +2668,12 @@ assert_eq   "failed public-IP lookup -> no SSH config written for the empty IP" 
   "$( [[ -s "$IPFAIL_CFG" ]] && echo present )"
 assert_contains "failed public-IP lookup -> the reachability probe is skipped, not failed" \
   "$RR_ERR" "skipping the end-of-run SSH reachability check"
+# repo#830: the empty-IP skip (aws_wait_public_ip budget exhausted) writes no
+# stanza either, so ssh_alias_written must be false there too.
+assert_eq   "failed public-IP lookup -> ssh_alias_written:false (repo#830)" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "failed public-IP lookup -> ssh_alias stays populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
 
 # (i) The other new aws_up() branch: write_ssh_alias() returning non-zero (the
 # write-then-validate rollback) must be reported, not silently ignored -- and
@@ -2366,6 +2695,36 @@ assert_eq   "a rejected alias write leaves the pre-existing SSH config untouched
   "$REJ_BEFORE" "$(cat "$REJ_CFG")"
 assert_eq   "a rejected alias write leaves no lock dir behind" "" \
   "$( [[ -e "$REJ_CFG.lock" ]] && echo present )"
+# repo#827: the refused write must be visible in the JSON -- ssh_alias_written
+# false, while ssh_alias itself stays populated (it is the intended alias).
+assert_eq   "aws: a rejected alias write reports ssh_alias_written:false" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "aws: a rejected alias write keeps ssh_alias populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+
+# repo#827 test-plan case: the same refusal via a configured VALUE that fails
+# write_ssh_alias()'s config-line hygiene check (not the ssh -G backstop) -- a
+# host value containing a space. (The other hygiene inputs, a malformed
+# REPO_REMOTE_SSH_USER or a multi-line key, are refused earlier by
+# validate_transport_config() with exit 2, so they never reach `up`'s
+# non-fatal alias path at all.) Covered on both the JSON and the human path.
+BADVAL_CFG="$SCRATCH/badval_ssh_config"
+rm -f "$BADVAL_CFG" "$BADVAL_CFG.lock"
+run_rr MOCK_AWS_NEW_ID=i-0badhost REPO_REMOTE_SSH_CONFIG="$BADVAL_CFG" \
+  MOCK_AWS_PUBLIC_IP='203.0.113.73 x' -- up --yes --json
+assert_eq   "hygiene-refused host value: up still succeeds (non-fatal)" "0" "$RR_RC"
+assert_contains "hygiene-refused host value: the refusal is the config-line hygiene check" \
+  "$RR_ERR" "refusing to write SSH alias"
+assert_eq   "hygiene-refused host value: ssh_alias_written:false" "false" \
+  "$(json_field "$RR_OUT" ssh_alias_written)"
+assert_eq   "hygiene-refused host value: ssh_alias stays populated" "repo-remote-myrepo" \
+  "$(json_field "$RR_OUT" ssh_alias)"
+assert_eq   "hygiene-refused host value: the SSH config is left unwritten" "" \
+  "$( [[ -s "$BADVAL_CFG" ]] && echo present )"
+run_rr MOCK_AWS_NEW_ID=i-0badhost2 MOCK_AWS_PUBLIC_IP='203.0.113.74 x' -- up --yes
+assert_eq   "hygiene-refused host value (human output): up still succeeds" "0" "$RR_RC"
+assert_contains "hygiene-refused host value (human output): the alias line flags the unwritten alias (repo#827)" \
+  "$RR_ERR" "repo-remote-myrepo (NOT written to the SSH config)"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -4395,6 +4754,10 @@ assert_contains "remote.md documents the public-IP poll knobs" \
   "$MD" "REPO_REMOTE_IP_POLL_ATTEMPTS"
 assert_contains "remote.md documents the not-refreshed alias warning" \
   "$MD" "alias was not refreshed"
+# repo#830: the ssh_alias_written contract must state the no-host-value skip
+# coverage, so the doc cannot drift back to refusal-only.
+assert_contains "remote.md documents that ssh_alias_written:false also covers the no-IP skip" \
+  "$MD" "no usable host value"
 
 # repo#487: the SSH-ingress posture (fail closed on failed detection, validated
 # override with a loud opt-in, revoke-before-authorize keyed on an owner marker)

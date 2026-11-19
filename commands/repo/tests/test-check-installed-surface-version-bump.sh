@@ -48,12 +48,21 @@ REPO="$WORKDIR/repo"
 # Fresh repo with a base commit carrying commands/foo.md and VERSION=1.0.0,
 # tagged "base". Callers add more commits on top and diff against "base".
 make_fixture() {
+    make_fixture_version 1.0.0
+}
+
+# Like make_fixture, but the base commit carries an explicit VERSION value.
+# Pass "none" to omit VERSION from the base commit entirely.
+make_fixture_version() {
+    local v="${1:-1.0.0}"
     rm -rf "$REPO"
     git_fixture_init "$REPO"
     git -C "$REPO" checkout -q -b main
     mkdir -p "$REPO/commands/repo"
     echo "hello" > "$REPO/commands/repo/foo.md"
-    echo "1.0.0" > "$REPO/VERSION"
+    if [[ "$v" != "none" ]]; then
+        echo "$v" > "$REPO/VERSION"
+    fi
     echo "unrelated" > "$REPO/README.md"
     git -C "$REPO" add -A
     git -C "$REPO" commit -q -m "base"
@@ -217,6 +226,73 @@ HELP_OUT="$("$SCRIPT" --help 2>&1)"
 STATUS=$?
 assert_eq "--help exit code is 0" "0" "$STATUS"
 assert_contains "--help mentions Usage" "$HELP_OUT" "Usage"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "-- case 12: a VERSION downgrade with a watched change fails (#835) --"
+# ---------------------------------------------------------------------------
+make_fixture_version 1.0.0
+echo "changed" >> "$REPO/commands/repo/foo.md"
+echo "0.9.9" > "$REPO/VERSION"
+git -C "$REPO" commit -q -am "downgrade"
+RC=0
+ERR_OUT="$(cd "$REPO" && "$SCRIPT" --base base 2>&1)" || RC=$?
+assert_eq "downgraded VERSION exits 1" "1" "$RC"
+assert_contains "downgrade failure names the downgrade" "$ERR_OUT" "downgrade"
+assert_contains "downgrade failure names both values" "$ERR_OUT" "1.0.0 -> 0.9.9"
+assert_contains "downgrade failure lists the changed file" "$ERR_OUT" "commands/repo/foo.md"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "-- case 13: a VERSION downgrade + no-surface-change marker passes --"
+# ---------------------------------------------------------------------------
+make_fixture_version 1.0.0
+echo "changed" >> "$REPO/commands/repo/foo.md"
+echo "0.9.9" > "$REPO/VERSION"
+git -C "$REPO" commit -q -am "downgrade"
+OUT="$(cd "$REPO" && PR_BODY='test-only edits
+
+<!-- loom:no-surface-change -->' "$SCRIPT" --base base 2>&1)"
+STATUS=$?
+assert_eq "downgrade + PR_BODY marker exits 0" "0" "$STATUS"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "-- case 14: VERSION touched but rewritten to the same value still fails --"
+# ---------------------------------------------------------------------------
+make_fixture_version 1.0.0
+echo "changed" >> "$REPO/commands/repo/foo.md"
+printf '1.0.0 \n' > "$REPO/VERSION"
+git -C "$REPO" commit -q -am "equal-value rewrite"
+RC=0
+ERR_OUT="$(cd "$REPO" && "$SCRIPT" --base base 2>&1)" || RC=$?
+assert_eq "equal-value VERSION rewrite exits 1" "1" "$RC"
+assert_contains "equal-value rewrite uses the plain no-bump failure text" "$ERR_OUT" "without a VERSION bump"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "-- case 15: VERSION newly added at head (absent at base) counts as a bump --"
+# ---------------------------------------------------------------------------
+make_fixture_version none
+echo "changed" >> "$REPO/commands/repo/foo.md"
+echo "1.0.0" > "$REPO/VERSION"
+git -C "$REPO" add -A
+git -C "$REPO" commit -q -am "add VERSION"
+OUT="$(cd "$REPO" && "$SCRIPT" --base base 2>&1)"
+STATUS=$?
+assert_eq "newly added VERSION exits 0" "0" "$STATUS"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "-- case 16: numeric (not lexical) bump ordering --"
+# ---------------------------------------------------------------------------
+make_fixture_version 1.0.9
+echo "changed" >> "$REPO/commands/repo/foo.md"
+echo "1.0.10" > "$REPO/VERSION"
+git -C "$REPO" commit -q -am "bump"
+OUT="$(cd "$REPO" && "$SCRIPT" --base base 2>&1)"
+STATUS=$?
+assert_eq "1.0.9 -> 1.0.10 (numeric order) exits 0" "0" "$STATUS"
 
 # ---------------------------------------------------------------------------
 echo ""

@@ -1,15 +1,16 @@
 ---
 name: "org-policy"
-description: "Preview or install canonical rjwalters/repo preferences into a client's GitHub owner/.github repository"
+description: "Preview or install canonical 2AMLogic/repo preferences into a client's GitHub owner/.github repository"
 domain: repo
 type: command
 user-invocable: true
+disable-model-invocation: true
 ---
 
 # /repo:org-policy — Organization Preferences
 
 Manage an organization's policy from any of its client repositories. The
-authoritative files live in **rjwalters/repo**, on its default branch:
+authoritative files live in **2AMLogic/repo**, on its default branch:
 
 - `policies/default.json`: shared defaults.
 - `policies/organizations/<lowercase-owner>.json`: optional owner overrides.
@@ -281,5 +282,5 @@ temporary client exception afterward. It does not waive CI or breaking-change
 review.
 
 For source layout, override examples, and validation, read `policies/README.md`
-in rjwalters/repo. Native reference:
+in 2AMLogic/repo. Native reference:
 https://docs.renovatebot.com/config-presets/#grouporganization-level-presets
