@@ -10,6 +10,11 @@ Chronological record of merged PRs and closed issues, maintained automatically b
 
 ### 2026-11-19
 
+- **PR #855**: docs: stop citing shipped work (#803/#805/#798) as live roadmap trackers
+- **PR #852**: docs: restate ROADMAP Now item 3 against the re-observed conformance table
+- **Issue #856** (closed): CI flake: hooks/repo/tests/run.sh (macOS, bash 3.2) — hosted runner lost communication after 62m on PR #853
+- **Issue #854** (closed): docs/ROADMAP.md cites four closed issues as live trackers (Now items 2 and 4, Blocked and waiting)
+- **Issue #851** (closed): docs/ROADMAP.md Now item 3 is stale: the conformance table it describes has already been re-observed
 - **Issue #804** (closed): INSTALLER-CONTRACT: re-observe the loom/anvil/squad conformance columns and fill the C9 row
 - **PR #850**: docs: disclose squad C4 build prerequisite and loom C9 unobserved state in conformance table
 - **PR #809**: docs: re-observe anvil and squad installer-contract conformance cells
