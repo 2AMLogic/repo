@@ -46,6 +46,13 @@
 CLAUDE_MD_BLOCK_ERROR=""
 CLAUDE_MD_BLOCK_BACKUP=""
 
+# The Repo Skills link as a pre-owner-move install.sh/resync wrote it, and as it
+# reads now (#859). The legacy form is assembled from parts so the shipped-file
+# stale-owner scan (test-no-stale-owner-slug.sh) does not flag this helper.
+_CLAUDE_MD_LEGACY_OWNER="rjwalters"
+_CLAUDE_MD_LEGACY_LINK="[Repo Skills](https://github.com/${_CLAUDE_MD_LEGACY_OWNER}/repo)"
+_CLAUDE_MD_CURRENT_LINK="[Repo Skills](https://github.com/2AMLogic/repo)"
+
 # Count non-overlapping occurrences of a fixed substring in a file. Markers
 # cannot span lines, so counting per line is exact — and unlike `grep -c` this
 # counts occurrences rather than matching lines, which matters precisely in the
@@ -152,6 +159,11 @@ claude_md_block_rewrite() {  # <file> <begin> <end> [block-file]
     # break the original layout did not have.
     _claude_md_slurp "$block"
     body="${_CLAUDE_MD_SLURPED%$'\n'}"
+    # A pre-move consumer script renders the block with its own embedded
+    # owner (it updates itself only after this sourced file ran), so correct
+    # the Repo Skills link in the replacement. Only `body` is touched: the
+    # consumer's text outside the markers keeps any historical link verbatim.
+    body="${body//"$_CLAUDE_MD_LEGACY_LINK"/$_CLAUDE_MD_CURRENT_LINK}"
     content="$prefix$body$suffix"
   else
     # Removal. When the begin marker started its own line, the newline that
