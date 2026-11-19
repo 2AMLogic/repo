@@ -8,8 +8,70 @@ Chronological record of merged PRs and closed issues, maintained automatically b
 - [2026-08](work_log/WORK_LOG_2026-08.md)
 - [2026-07](work_log/WORK_LOG_2026-07.md)
 
+### 2026-11-19
+
+- **Issue #804** (closed): INSTALLER-CONTRACT: re-observe the loom/anvil/squad conformance columns and fill the C9 row
+- **PR #850**: docs: disclose squad C4 build prerequisite and loom C9 unobserved state in conformance table
+- **PR #809**: docs: re-observe anvil and squad installer-contract conformance cells
+
+### 2026-11-18
+
+- **Issue #849** (closed): resync-installed.sh can't find its source clone when run from a linked worktree (sidecar is gitignored)
+- **Issue #837** (closed): SessionStart handoff hook entry: quoted form matched on removal but not on listing or wiring (asymmetry after #798)
+- **PR #848**: fix: recognise quoted SessionStart handoff entry on install and uninstall listing
+- **Issue #798** (closed): 0.26.1 installer leaves the quoted guard-destructive.sh entry in .claude/settings.json after deleting the script
+- **PR #800**: fix: match quoted guard-destructive.sh hook entry in installer and uninstaller
+- **Issue #846** (closed): Non-shipped self-references still name rjwalters/repo (README.md, INSTALLER-CONTRACT.md)
+- **PR #847**: docs: repoint non-shipped self-references to 2AMLogic/repo and widen slug detector
+- **Issue #844** (closed): Re-point Repo Skills' own and sibling-tool slugs after the move to 2AMLogic; detect a stale source-clone remote
+- **PR #845**: fix: name 2AMLogic/repo in shipped self-references; detect stale source remotes
+- **Issue #843** (closed): Merge queue: no-surface-change marker is PR-body-only, unavailable on merge_group runs
+- **Issue #841** (closed): ci: qualify PR checks for GitHub merge queues
+- **PR #842**: ci: run CI jobs on merge-group commits with per-group concurrency
+
+### 2026-11-17
+
+- **Issue #839** (closed): skills/README.md says command files carry "the same four keys" where all five are present
+- **PR #840**: docs: correct "four keys" to "five keys" in command frontmatter description
+- **Issue #834** (closed): skills/README.md still claims every command file has the "same five-key" frontmatter, contradicting its own repo#832 paragraph
+- **PR #838**: docs: scope skills/README.md frontmatter lead to allow the repo#832 sixth key
+- **Issue #835** (closed): check-installed-surface-version-bump.sh accepts a VERSION downgrade as a satisfied bump
+- **PR #836**: fix: require VERSION to increase in the installed-surface bump gate
+- **Issue #832** (closed): Half of the installed repo: commands are rarely or never dispatched but are listed in every session's context
+- **PR #833**: feat: unlist nine rarely-dispatched repo commands from the model-visible listing
+
+### 2026-11-16
+
+- **Issue #830** (closed): repo-remote: ssh_alias_written reports true on the empty/None-IP skip, where no stanza is written either
+- **PR #831**: fix: report ssh_alias_written:false when repo-remote up skips the alias write
+- **Issue #823** (closed): test portability: date +%s%N silently loses sub-second resolution on the BSD/macOS CI leg (repo#815 overlap assertion is Linux-only)
+- **PR #829**: test: portable nanosecond clock for BSD date +%s%N in both suites
+- **Issue #827** (closed): repo-remote: a rejected SSH alias write is log-only — emit_up_result does not carry the degraded state
+- **PR #828**: feat: up reports whether the SSH alias was actually written (ssh_alias_written)
+- **Issue #824** (closed): repo-remote: gcp_up ignores write_ssh_alias's exit status, reporting a successful up for an alias that was never written
+- **PR #826**: fix: gcp_up reports a rejected SSH alias write instead of swallowing it
+
+### 2026-11-15
+
+- **Issue #820** (closed): No test coverage for run.sh's print_failures: the diagnostic path green CI never exercises
+- **PR #825**: test: pin run.sh failure-output helpers (print_failures/strip_ansi/suite_count)
+- **Issue #811** (closed): org-policy: the new 403 message would claim "No change was made" after apply created OWNER/.github
+- **PR #822**: fix: org-policy apply reports a post-creation 403 as repository created, not 'No change was made'
+- **Issue #815** (closed): test flake: test-repo-remote.sh 'concurrent write_ssh_alias: first/second writer's block survives' fails on pnpm test (guard/handoff/loss-check suite) — now red on main's tip
+- **PR #818**: fix: pid-symlink SSH-alias lock with owned release and identity-verified stale-break (repo#815)
+- **Issue #814** (closed): macOS (bash 3.2): repo-scrub-forks.sh aborts on the first fingerprint hit — empty-array expansion under set -u
+- **PR #821**: fix(repo): guard empty-array expansion in fork-sweep fingerprint search (bash 3.2 set -u)
+- **Issue #817** (closed): hooks/repo/tests/run.sh drops failing cases' diagnostics: delegated-suite output is filtered to '^ +FAIL'
+- **PR #819**: fix: keep delegated-suite failure diagnostics in run.sh output (repo#817)
+- **Issue #805** (closed): CI: run the full hooks/repo/tests/run.sh suite on macOS (bash 3.2, BSD userland)
+- **PR #807**: ci: run full hooks/repo/tests/run.sh on macOS (bash 3.2, BSD userland)
+- **Issue #806** (closed): test flake: test-repo-remote.sh 'concurrent write_ssh_alias: first writer block survives' fails intermittently in the guard/handoff/loss-check suite
+- **PR #813**: test: report concurrent write_ssh_alias writers' exit status and stderr on failure
+
 ### 2026-11-14
 
+- **Issue #803** (closed): org-policy: name a 403 on the target policy repository instead of surfacing a raw API error
+- **PR #808**: fix: name a 403 on the org-policy target repository
 - **PR #802**: docs: roadmap as of 2026-11-13
 
 ### 2026-11-11
@@ -377,25 +439,4 @@ Chronological record of merged PRs and closed issues, maintained automatically b
 - **Issue #127** (closed): Guard-decision review: scratch-var exemption misses the klt/KLayout layout cold-start idiom (inline ./layout/verify.sh reproduction denied), propose extending the #65 exemption
 - **Issue #125** (closed): Commit a klt signoff block manifest so this block's T1 state is graded, not hand-read
 - **Issue #124** (closed): T1 item 11 (power delivery, structural): no klt erc supply spec or report in this repo
-
-### 2026-09-19
-- **Issue #438** (closed): test-guard-equivalence.sh cannot see worktree-write-confinement divergences: every case runs from a cwd with no sibling worktree
-- **PR #440**: test: run guard-equivalence cases from a real Loom worktree cwd
-
-### 2026-09-18
-- **Issue #436** (closed): guard-destructive.sh: qsplit() mis-splits a quoted redirect target's $(...) at an embedded pipe, causing false worktree-write-confinement DENY
-- **PR #437**: fix(guard): stop qsplit() splitting the outer stream at a separator inside $( )
-- **Issue #434** (closed): guard: query-sink vetoes read the masked command copy, so an earlier masking pass can hide a veto token (residual from #428)
-- **PR #435**: fix(guard): run the data-sink pass before literal-text redaction so a masked span cannot hide a query-sink veto
-- **Issue #311** (closed): Auditor: guard-destructive fires on dangerous substrings inside test/data strings, not just executed commands
-- **PR #428**: fix(guard): treat jq/grep/sed/awk query text as data, not a command (#311)
-
-### 2026-09-15
-- **Issue #432** (closed): merge-pr.sh: _check_champion_hold_state_staleness aborts the whole script on a PR with no champion:hold-state marker
-- **Issue #429** (closed): guard: command_has_shell_segment() misses a shell reached through xargs/parallel
-- **PR #431**: fix(guard): recognize xargs/parallel as a shell-spawning segment
-- **Issue #430** (closed): merge-pr.sh: _check_champion_hold_state_staleness crashes under set -euo pipefail when no champion:hold-state marker exists
-- **Issue #257** (closed): Handoff note in another repo is invisible from the repo you start in
-- **PR #427**: feat(hooks): opt-in sibling-repo handoff-note visibility (#257)
-- **Issue #282** (closed): Add dual-runtime Claude and Codex packaging for Repo Skills
 
