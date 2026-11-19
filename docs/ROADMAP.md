@@ -4,7 +4,7 @@ Repo Skills is a toolbox of general repository-hygiene and environment commands
 (`/repo:<verb>` in Claude Code, `$repo-<verb>` in Codex CLI) plus the installer,
 guard hook and installer contract that deliver them into consumer repos.
 
-Status as of 2026-11-13, `main` @ `c77d1ba`, `VERSION` 0.26.1 (tag `v0.26.1`).
+Status as of 2026-11-19, `main` @ `12bc27f`, `VERSION` 0.26.11 (tag `v0.26.11`).
 
 The label-by-label queue is [`WORK_PLAN.md`](../WORK_PLAN.md) and the merge
 history is [`WORK_LOG.md`](../WORK_LOG.md); both are generated, not repeated here.
@@ -60,12 +60,15 @@ Can start today. Every merge in this repo currently needs a human (see
    unanticipated). Done when: a stubbed 403 on the target produces a message
    that says the repository exists or is hidden and that access was refused,
    with a test in `commands/repo/tests/test_org_policy.py`. Tracked as #803.
-3. **Re-observe the other tools' columns of the conformance table.**
-   `INSTALLER-CONTRACT.md` says the loom/anvil/squad columns were observed
-   2026-08-06 (C10 on 2026-09-29) and its C9 row still reads "not yet checked
-   (repo#385)" for all three. Done when: each cell of every column whose
-   clone the builder can read is re-derived with the section's own spot-check
-   commands and the observation date is updated. Tracked as #804.
+3. **Finish the loom column of the conformance table.** The anvil and squad
+   columns were re-observed 2026-11-14 (repo#804) and every cell re-derived;
+   the loom column only partially (C1, C2, C4, C8), because its installer
+   builds `loom-daemon` and no scratch install was possible — its C3, C5-C7
+   and C9 cells still read as observed 2026-08-06 (repo#156), C10 as
+   observed 2026-09-29 (repo#511), and C9 remains "not yet checked
+   (repo#385)". Done when: the remaining loom cells are re-derived with the
+   section's own spot-check commands and the C9 cell carries an observed
+   result. Tracked as #804.
 4. **Run the full suite on macOS in CI.** The `test-macos` job runs only
    `test-repo-remote.sh` and states the full `pnpm test` suite is out of
    scope; #754 and #755 were both macOS-only failures that Linux CI missed.
