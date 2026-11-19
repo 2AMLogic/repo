@@ -10,6 +10,8 @@ Chronological record of merged PRs and closed issues, maintained automatically b
 
 ### 2026-11-19
 
+- **Issue #858** (closed): /repo:release: $0/$1 in shell and awk snippets are replaced by skill-argument substitution
+- **PR #861**: fix: spell shell/awk positionals substitution-proof in command Markdown
 - **PR #855**: docs: stop citing shipped work (#803/#805/#798) as live roadmap trackers
 - **PR #852**: docs: restate ROADMAP Now item 3 against the re-observed conformance table
 - **Issue #856** (closed): CI flake: hooks/repo/tests/run.sh (macOS, bash 3.2) — hosted runner lost communication after 62m on PR #853
