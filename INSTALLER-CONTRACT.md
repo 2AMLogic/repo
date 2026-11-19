@@ -363,24 +363,28 @@ tool's tracking issue, and each requirement above carries a spot-check command
 you can run against that tool's clone to re-derive its row in seconds.
 
 Other tools' columns were re-observed 2026-11-14 (repo#804) from fresh clones
-at loom `96f5053`, anvil `1403d9c` and squad `7031ae6`. The anvil and squad
+at loom `96f5053`, anvil `1403d9c` and squad `7031ae6`; squad's C4 cell was
+re-confirmed 2026-11-19 (repo#804) at squad `4636e41`, which is where its
+`after pnpm install + build` prerequisite was observed. The anvil and squad
 columns re-derive every cell C1-C10. The loom column re-derives only C1, C2, C4
 and C8: loom's installer builds `loom-daemon` and provisions host-wide binaries,
-so a scratch install was not possible. Its C3, C5-C7 and C9 cells stay as
-observed 2026-08-06 (repo#156) and C10 as observed 2026-09-29 (repo#511). The
-`repo` column is verified on every test run.
+so a scratch install is not possible on a shared worker. Its C3 and C5-C7 cells
+stay as observed 2026-08-06 (repo#156) and C10 as observed 2026-09-29 (repo#511);
+its C9 cell was never observed — the requirement landed 2026-08-17 (repo#385,
+closed), after that pass, and re-observing it needs the same loom install — so
+it reads unobserved below. The `repo` column is verified on every test run.
 
 | # | loom | anvil | repo | squad |
 |---|---|---|---|---|
 | C1 entry point | ✅ | ✅ `install.sh` → `scripts/install-anvil.sh` | ✅ | ✅ |
 | C2 target arg | ❌ prompts when no target given | ❌ target required, no `.` default | ✅ | ✅ |
 | C3 `-y` | ✅ | ✅ | ✅ | ✅ |
-| C4 `--dry-run` | ✅ | ✅ | ✅ | ✅ |
+| C4 `--dry-run` | ✅ | ✅ | ✅ | ✅ after pnpm install + build |
 | C5 tracked metadata | ✅ | ❌ `anvil_version`, not `version` | ✅ | ✅ |
 | C6 gitignored sidecar | ✅ | ✅ | ✅ | ✅ |
 | C7 consumer resync | ✅ | ✅ | ✅ | ❌ none shipped |
 | C8 honest `VERSION` | ✅ | ✅ | ✅ | ✅ |
-| C9 gitignore sweep | ❌ not yet checked (repo#385) | ❌ no warning | ✅ | ❌ no warning |
+| C9 gitignore sweep | ❓ never observed; needs loom install | ❌ no warning | ✅ | ❌ no warning |
 | C10 repo-owned pins | ✅ `.loom/resync-ignore` | ❌ | ✅ | ❌ |
 
 Conformance work is tracked per tool: Loom
