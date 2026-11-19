@@ -107,7 +107,7 @@ find . \( -name .git -o -name node_modules -o -name target \
 git worktree list --porcelain
 
 # The worktree paths alone, for step 3's WORKTREES block. Extract them with
-# `sed`, not `awk '{print $2}'`: awk splits on whitespace and would truncate
+# `sed`, not `awk '{print $(2)}'`: awk splits on whitespace and would truncate
 # `/repos/my checkout/wt` to `/repos/my`. The `worktree ` prefix is fixed, so
 # stripping it with sed and reading whole lines keeps paths with spaces intact
 # (paths containing newlines need `git worktree list --porcelain -z`).

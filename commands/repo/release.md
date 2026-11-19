@@ -19,6 +19,14 @@ at release time, never hardcoded, so this works in any repo.
 /repo:release                  # Interactive release from the default branch
 ```
 
+`/repo:release` takes **no arguments**. Because nothing below is an argument
+placeholder, any text passed after the command name is not substituted into the
+snippets — it is appended to the prompt verbatim as an `ARGUMENTS:` note, so
+**do not pass a bump level**: it is not a reliable way to select one, and it is
+not discarded either. Select the bump level interactively at the Phase 4
+confirmation prompt. (Every snippet below spells shell positionals as `"${1}"`
+and awk fields as `$(0)`/`$(1)`, which are not substitution targets.)
+
 ## Phase 0 — Load project release policy
 
 Before Phase 1, load the repo's **release policy** if it has one. This is the
@@ -250,7 +258,8 @@ version no heuristic could find — **offer to record it** as a `## version-sour
 block in `.repo/release-policy.md`, so the next release detects it automatically
 instead of rediscovering it from scratch. Confirm the two commands with the
 operator (a `read:` that prints the current version, a `bump:` that rewrites it
-in place with the new version arriving as `$1`) and, on a yes, append the block —
+in place with the new version arriving as the bump command's first shell
+argument) and, on a yes, append the block —
 creating `.repo/release-policy.md` if absent:
 
 ```bash
@@ -591,7 +600,7 @@ Once approved:
      pyproject)         python3 -c 'import re,sys;p="pyproject.toml";t=open(p).read();n=re.subn(r"(?ms)(^\[project\][^\n]*\n(?:(?!^\[)[^\n]*\n)*?version[ \t]*=[ \t]*)([\"\x27])[^\"\x27\n]*\2",lambda m:m.group(1)+m.group(2)+sys.argv[1]+m.group(2),t,count=1);sys.exit("ERROR: no [project].version found in pyproject.toml") if n[1]==0 else open(p,"w").write(n[0])' "$NEW" && if [ -f uv.lock ] && command -v uv >/dev/null 2>&1; then uv lock; fi ;;  # then commit (with CHANGELOG) + tag v$NEW
      npm)               npm version <level> -m "chore: bump version to %s" ;;
      version-file)      printf '%s\n' "$NEW" > VERSION ;;  # then commit (with CHANGELOG) + tag v$NEW
-     declared-policy)   sh -c "$VS_BUMP" _ "$NEW"; GOT="$(sh -c "$VS_READ")"; [ "$GOT" = "$NEW" ] || { echo "ERROR: declared bump: ran but the source still reads '$GOT', not '$NEW' — the bump: command did not take (regex/path mismatch?). Refusing to commit/tag." >&2; exit 1; } ;;  # declared bump: command, $NEW passed as $1, then post-verified against declared read:; then commit (with CHANGELOG) + tag v$NEW
+     declared-policy)   sh -c "$VS_BUMP" _ "$NEW"; GOT="$(sh -c "$VS_READ")"; [ "$GOT" = "$NEW" ] || { echo "ERROR: declared bump: ran but the source still reads '$GOT', not '$NEW' — the bump: command did not take (regex/path mismatch?). Refusing to commit/tag." >&2; exit 1; } ;;  # declared bump: command, $NEW passed as the first shell argument, then post-verified against declared read:; then commit (with CHANGELOG) + tag v$NEW
    esac
    ```
 
@@ -641,8 +650,10 @@ Once approved:
      `CHANGELOG.md` in the version commit.
 
    The `declared-policy` branch runs the repo's declared `bump:` command with the
-   new version passed as `$1` — `sh -c "$VS_BUMP" _ "$NEW"` sets `$0=_` and
-   `$1=$NEW` — then joins the same stage-plus-`CHANGELOG.md`, commit, and tag path
+   new version passed as its first shell argument (`"${1}"` inside the declared
+   one-liner) — `sh -c "$VS_BUMP" _ "$NEW"` makes `_` the command name and
+   `$NEW` the first argument — then joins the same stage-plus-`CHANGELOG.md`,
+   commit, and tag path
    as the other non-self-committing tools. The declaration owns **only** the
    in-file edit; this command still owns the commit and the tag, so a repo
    declares just the one-line `sed`/edit, never the git plumbing.
@@ -716,8 +727,8 @@ rather than re-running the pattern a second time:
 
 ```bash
 extract_release_notes() {   # <version> -> writes matching CHANGELOG range to stdout
-  awk -v v="$1" '
-    $0 ~ "^##[[:space:]]+v?\\[?" v "([[:space:]]|\\]|$)" {f=1; next}
+  awk -v v="${1}" '
+    $(0) ~ "^##[[:space:]]+v?\\[?" v "([[:space:]]|\\]|$)" {f=1; next}
     /^##[[:space:]]/ {f=0}
     f' CHANGELOG.md
 }
@@ -829,13 +840,14 @@ to read and run.
 ## version-source
 
 - read: `sed -n 's/.*AppVersion\.current = "\(.*\)".*/\1/p' Sources/App/Version.swift`
-- bump: `sed -i '' "s/AppVersion\.current = \".*\"/AppVersion.current = \"$1\"/" Sources/App/Version.swift`
+- bump: `sed -i '' "s/AppVersion\.current = \".*\"/AppVersion.current = \"${1}\"/" Sources/App/Version.swift`
 ```
 
 - **`read:`** — a shell one-liner (backtick-fenced inline code) that prints the
   current version to stdout. Phase 3 runs it via `sh -c "$VS_READ"`.
 - **`bump:`** — a shell one-liner that rewrites the version in place, with the new
-  version arriving as `$1`. Phase 5 runs it via `sh -c "$VS_BUMP" _ "$NEW"`. The
+  version arriving as the command's first shell argument (`"${1}"` in the
+  one-liner). Phase 5 runs it via `sh -c "$VS_BUMP" _ "$NEW"`. The
   command owns only the in-file edit; `/repo:release` still stages, commits (with
   `CHANGELOG.md`), and tags — declare just the edit, not the git plumbing.
 
