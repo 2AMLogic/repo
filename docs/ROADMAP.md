@@ -4,7 +4,7 @@ Repo Skills is a toolbox of general repository-hygiene and environment commands
 (`/repo:<verb>` in Claude Code, `$repo-<verb>` in Codex CLI) plus the installer,
 guard hook and installer contract that deliver them into consumer repos.
 
-Status as of 2026-11-13, `main` @ `c77d1ba`, `VERSION` 0.26.1 (tag `v0.26.1`).
+Status as of 2026-11-19, `main` @ `98c89a6`, `VERSION` 0.26.11 (tag `v0.26.11`).
 
 The label-by-label queue is [`WORK_PLAN.md`](../WORK_PLAN.md) and the merge
 history is [`WORK_LOG.md`](../WORK_LOG.md); both are generated, not repeated here.
@@ -22,6 +22,9 @@ Done and evidenced on `main`:
   (`commands/repo/tests/test-installer-contract.sh`); `install.sh` and
   `uninstall.sh` match bare and double-quoted guard-hook entries in consumers'
   `settings.json` (#798, PR #800).
+  The 2026-11-14 checks covered every anvil and squad cell and loom's C1, C2,
+  C4 and C8. The final update for #804 on 2026-11-19 reconfirmed squad's C4
+  and recorded that loom's C9 had never been observed.
 - **Codex packaging.** Every command is its own native skill and `$repo` is a
   thin router with no `references/` copies (#676; PR #728 merged).
 - **Destructive-command guard** (`hooks/repo/guard-destructive.sh`): worktree
@@ -57,12 +60,12 @@ Can start today. Every merge in this repo currently needs a human (see
    `loom:merge-conflict`. Done when: #766 merges cleanly against `main`,
    `pnpm test` passes, and install/resync remove a retired command's installed
    files as #765 requires.
-2. **Re-observe the other tools' columns of the conformance table.**
-   `INSTALLER-CONTRACT.md` says the loom/anvil/squad columns were observed
-   2026-08-06 (C10 on 2026-09-29) and its C9 row still reads "not yet checked
-   (repo#385)" for all three. Done when: each cell of every column whose
-   clone the builder can read is re-derived with the section's own spot-check
-   commands and the observation date is updated. Tracked as #804.
+2. **Check the six loom cells that require a full install.** The last
+   observations for C3 and C5-C7 are from 2026-08-06 (repo#156), and C10 is
+   from 2026-09-29 (repo#511). C9 still needs its first observation. On a
+   host that permits a full loom install, run the `INSTALLER-CONTRACT.md`
+   spot-checks for these six cells and record the results and observation date
+   in the table. Tracked as #816.
 
 ## Next
 
@@ -104,7 +107,7 @@ Can start today. Every merge in this repo currently needs a human (see
 - **#565**: its remaining step is an attended VM check of `/repo:remote`,
   the command #765 removes. #424 is an auto-maintained digest, not work.
 
-Open issues with buildable work and no PR: none. Item 2 above (#804) is the
+Open issues with buildable work and no PR: none. Item 2 above (#816) is the
 only new work a builder can pick up.
 
 ## Not planned
