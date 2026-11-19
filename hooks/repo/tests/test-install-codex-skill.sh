@@ -592,7 +592,11 @@ assert_eq "post-migration resync reports no drift" "0" "$?"
 T15="$(new_target migrate-foreign)"
 install_into "$T15" >/dev/null
 mk_legacy "$T15"
-sed -i "/$MARKER/d" "$T15/$CODEX_REL/SKILL.md"
+# Portable in-place edit (test-side, #805 AC3): GNU sed rejects `sed -i ''` and
+# BSD sed requires a suffix argument for -i, so neither form works on both
+# platforms — go through a temp file instead.
+sed "/$MARKER/d" "$T15/$CODEX_REL/SKILL.md" > "$T15/$CODEX_REL/SKILL.md.tmp" \
+  && mv "$T15/$CODEX_REL/SKILL.md.tmp" "$T15/$CODEX_REL/SKILL.md"
 bash "$T15/.claude/skills/repo/scripts/resync-installed.sh" --target "$T15" >/dev/null 2>&1
 install_into "$T15" >/dev/null
 assert_file "unmarked repo/ keeps its references/ through resync and install" "$T15/$CODEX_REFS_REL/tidy.md"

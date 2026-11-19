@@ -295,6 +295,14 @@ saved_guard_policy() {  # -> the saved guardHook string, or empty
   fi
 }
 
+# jq predicate (repo#798): true when a hook command IS our guard entry — the
+# bare command, or the same command wrapped in ONE pair of double quotes (the
+# quoted form some consumers' settings.json carries). Exact match only, never a
+# substring, so a foreign guard that merely mentions our path is not ours.
+# Prepended to every jq program that needs it; used by existing_guard_wired,
+# merge_settings_hook and unwire_own_guard so they cannot drift apart.
+GUARD_IS_OURS_JQ='def is_ours($c): ((.command // "") | (. == $c or . == ("\"" + $c + "\""))); '
+
 # existing_guard_wired <settings-file> <our-cmd>
 # True (0) when a destructive-command guard matching guard-destructive.sh is
 # ALREADY wired under a PreToolUse/Bash hook in <settings-file>, under some
@@ -308,17 +316,17 @@ saved_guard_policy() {  # -> the saved guardHook string, or empty
 # A single implementation is what makes that guarantee possible. (Defined here,
 # ahead of the --dry-run enumeration, so the preview can use it too.)
 #
-# The `.command != $c` filter matters on a REPEAT install: by the second run
+# The `is_ours($c) | not` filter matters on a REPEAT install: by the second run
 # our own hook IS already wired, and without excluding it here every reinstall
 # would misdetect its own prior wiring as "another" guard and quietly stop
 # copying/maintaining its own file.
 existing_guard_wired() {
   local settings="$1" cmd="$2"
   [[ -f "$settings" ]] || return 1
-  jq -e --arg c "$cmd" '
+  jq -e --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
         (.hooks.PreToolUse // []) | any(.[]?;
           (.matcher == "Bash") and ((.hooks // []) | any(.[]?;
-            ((.command // "") | test("guard-destructive\\.sh")) and (.command != $c))))
+            ((.command // "") | test("guard-destructive\\.sh")) and (is_ours($c) | not))))
       ' "$settings" >/dev/null 2>&1
 }
 
@@ -488,9 +496,9 @@ merge_settings_hook() {
   fi
 
   # Idempotent re-install: our exact command is already present.
-  if jq -e --arg c "$cmd" '
+  if jq -e --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
         (.hooks.PreToolUse // []) | any(.[]?;
-          (.matcher == "Bash") and ((.hooks // []) | any(.[]?; .command == $c)))
+          (.matcher == "Bash") and ((.hooks // []) | any(.[]?; is_ours($c))))
       ' "$settings" >/dev/null 2>&1; then
     info "PreToolUse guard already wired in .claude/settings.json (no change)"
     return
@@ -530,7 +538,7 @@ merge_settings_hook() {
 # Deferral heal (repo#733). When another guard-destructive.sh is wired and we
 # defer to it (GUARD_HOOK_INSTALLED=false), our OWN entry from an earlier
 # install must not stay behind: it would keep running a copy this run no longer
-# refreshes, and doubles the guard. Remove only our exact $HOOK_CMD entry (other
+# refreshes, and doubles the guard. Remove only our $HOOK_CMD entry, bare or double-quoted (repo#798) (other
 # hooks sharing the Bash matcher are kept; a matcher block is dropped only if
 # our removal emptied it) and delete the script/symlink, so the recorded
 # guardHookInstalled:false matches the tree. No-op when neither is present, so
@@ -541,15 +549,15 @@ unwire_own_guard() {
   if [[ -f "$settings" ]]; then
     if ! jq -e . "$settings" >/dev/null 2>&1; then
       warning "Skipping guard unwiring: $settings is not valid JSON (remove the Repo Skills guard entry by hand)"
-    elif jq -e --arg c "$cmd" '
+    elif jq -e --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
           (.hooks.PreToolUse // []) | any(.[]?;
-            (.matcher == "Bash") and ((.hooks // []) | any(.[]?; .command == $c)))
+            (.matcher == "Bash") and ((.hooks // []) | any(.[]?; is_ours($c))))
         ' "$settings" >/dev/null 2>&1; then
       tmp="$(mktemp)"
-      if jq --arg c "$cmd" '
+      if jq --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
             .hooks.PreToolUse |= [.[]
-              | if (.matcher == "Bash") and ((.hooks // []) | any(.[]?; .command == $c))
-                then (.hooks |= map(select(.command != $c)))
+              | if (.matcher == "Bash") and ((.hooks // []) | any(.[]?; is_ours($c)))
+                then (.hooks |= map(select(is_ours($c) | not)))
                      | if (.hooks | length) == 0 then empty else . end
                 else . end]
           ' "$settings" >"$tmp"; then
@@ -589,10 +597,11 @@ merge_settings_sessionstart_hook() {
 
   # Idempotent re-install: our exact command is already present under EVERY
   # source matcher we manage (a partial wiring falls through and is completed).
-  if jq -e --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" '
+  # is_ours accepts the bare and the double-quoted form of BOTH spellings.
+  if jq -e --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" "$GUARD_IS_OURS_JQ"'
         (.hooks.SessionStart // []) as $ss |
         ($sources | all(. as $m | $ss | any(.[]?;
-          (.matcher == $m) and ((.hooks // []) | any(.[]?; .command == $c or .command == $abs)))))
+          (.matcher == $m) and ((.hooks // []) | any(.[]?; is_ours($c) or is_ours($abs))))))
       ' "$settings" >/dev/null 2>&1; then
     info "SessionStart handoff hook already wired in .claude/settings.json (no change)"
     return
@@ -600,23 +609,23 @@ merge_settings_sessionstart_hook() {
 
   # Coexistence: a DIFFERENT session-start-handoff.sh is already wired (e.g. a
   # copy living at another path). Defer rather than surfacing the note twice.
-  if jq -e --arg c "$cmd" --arg abs "$abs" '
+  if jq -e --arg c "$cmd" --arg abs "$abs" "$GUARD_IS_OURS_JQ"'
         (.hooks.SessionStart // []) | any(.[]?;
           (.hooks // []) | any(.[]?;
-            ((.command // "") | test("session-start-handoff\\.sh")) and (.command != $c and .command != $abs)))
+            ((.command // "") | test("session-start-handoff\\.sh")) and ((is_ours($c) or is_ours($abs)) | not)))
       ' "$settings" >/dev/null 2>&1; then
     info "A handoff SessionStart hook is already wired in .claude/settings.json — deferring to it (not adding a duplicate)"
     return
   fi
 
   tmp="$(mktemp)"
-  if jq --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" '
+  if jq --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" "$GUARD_IS_OURS_JQ"'
         .hooks //= {} |
         .hooks.SessionStart //= [] |
         reduce ($sources[]) as $m (.;
           if (.hooks.SessionStart | any(.[]?; .matcher == $m))
           then .hooks.SessionStart |= map(
-            if (.matcher == $m) and (((.hooks // []) | any(.[]?; .command == $c or .command == $abs)) | not)
+            if (.matcher == $m) and (((.hooks // []) | any(.[]?; is_ours($c) or is_ours($abs))) | not)
             then .hooks = ((.hooks // []) + [{type: "command", command: $c}])
             else . end)
           else .hooks.SessionStart += [{matcher: $m, hooks: [{type: "command", command: $c}]}]
@@ -1149,7 +1158,7 @@ fi
 BLOCK_FILE="$(mktemp)"
 {
   echo "$MARKER_BEGIN"
-  echo "This repository has [Repo Skills](https://github.com/rjwalters/repo) v$VERSION installed —"
+  echo "This repository has [Repo Skills](https://github.com/2AMLogic/repo) v$VERSION installed —"
   echo "general repository hygiene and environment commands invoked as \`/repo:<command>\`. Run"
   echo "\`/repo:help\` for the command list, or see \`.claude/skills/repo/SKILL.md\` for the full"
   echo "guide. Hygiene commands apply safe, reversible fixes by default and report each"

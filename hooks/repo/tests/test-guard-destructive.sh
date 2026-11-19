@@ -9,7 +9,7 @@
 # Ported from rjwalters/loom's tests/hooks/test-guard-destructive.sh as part of
 # the guard consolidation (rjwalters/repo#30), kept as close to that suite as
 # possible so behaviour parity with the Loom guard is provable. Bare issue refs
-# (#3553 etc.) refer to rjwalters/loom; repo#NN refers to rjwalters/repo.
+# (#3553 etc.) refer to rjwalters/loom; repo#NN refers to 2AMLogic/repo.
 # Repo-Skills-specific additions (REPO_* env naming, dual-config precedence,
 # the repo#29 pipe-to-shell fix) are appended at the end. The legacy LOOM_*
 # env cases throughout are a deliberate part of the contract under test.
@@ -6307,12 +6307,23 @@ echo -e "${YELLOW}--- Performance check ---${NC}"
 #                             suite fails (FAIL++/exit 1). Intended only for
 #                             runs on a deliberately quiescent machine.
 PERF_MAX_MS="${LOOM_GUARD_PERF_MAX_MS:-200}"
+# Portable nanosecond clock (repo#823): BSD date emits a literal `N` for %N
+# and exits 0, so a `date ... || python3` fallback cannot fire there -- judge
+# the output shape, never date's exit status.
+ns_now() {
+    local t
+    t="$(date +%s%N)"
+    case "$t" in
+        *[!0-9]*) python3 -c 'import time; print(int(time.time()*1e9))' ;;
+        *) printf '%s' "$t" ;;
+    esac
+}
 TOTAL=$((TOTAL + 1))
-START=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+START=$(ns_now)
 for i in $(seq 1 10); do
     make_input "git status" "$REPO_ROOT" | "$GUARD" >/dev/null 2>&1
 done
-END=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+END=$(ns_now)
 ELAPSED_MS=$(( (END - START) / 1000000 ))
 AVG_MS=$((ELAPSED_MS / 10))
 
@@ -8177,7 +8188,9 @@ CC_MSG_ENV=()
 cc_msg() {  # <desc> <cmd> <cwd> <grep -F needle>...
     local d="$1" cmd="$2" cwd="$3"; shift 3
     TOTAL=$((TOTAL + 1)); local out reason ok=1 n
-    out=$(cc_run "$cmd" "$cwd" "${CC_MSG_ENV[@]}"); reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
+    # bash < 4.4 aborts on "${arr[@]}" with the array empty under set -u, so
+    # guard the expansion the same way the env-assignment sites above do.
+    out=$(cc_run "$cmd" "$cwd" ${CC_MSG_ENV[@]+"${CC_MSG_ENV[@]}"}); reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)
     for n in "$@"; do grep -qF -- "$n" <<<"$reason" || ok=0; done
     if [[ $ok -eq 1 && -n "$reason" ]]; then
         PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: $d"
@@ -8334,7 +8347,12 @@ cc_allow "#583: quoted prose with cargo +stable clean allowed" 'echo "try cargo 
 # --- helper adapter contract ---
 TOTAL=$((TOTAL + 1))
 _cc_adapt=$(bash -c '
-    source <(sed -n "/^_cargo_toml_target_dir_value()/,/^# tmpfs_ambient_target_dir()/p" "$1" | sed "\$d")
+    # Portable extraction source (test-side, #805 AC3): bash 3.2 `source <(...)`
+    # is a silent no-op (rc 0, executes nothing), so go through a temp file.
+    _cc_fns=$(mktemp) || exit 1
+    sed -n "/^_cargo_toml_target_dir_value()/,/^# tmpfs_ambient_target_dir()/p" "$1" | sed "\$d" > "$_cc_fns"
+    source "$_cc_fns"
+    rm -f "$_cc_fns"
     _cargo_config_walk_up_target_dir "$2"' _ "$GUARD" "$CC_REPO" 2>/dev/null || true)
 if [[ "$_cc_adapt" == "$CC_SHARED"$'\t'"$CC_REPO/.cargo/config.toml" ]]; then
     PASS=$((PASS + 1)); echo -e "  ${GREEN}PASS${NC}: #583: walk-up helper keeps <path>TAB<file> contract"

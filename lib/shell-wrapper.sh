@@ -184,7 +184,7 @@ shell_wrapper_plan() {  # <rcfile>
 # either way — argv passed to the real `claude` binary is never altered by
 # whether the banner fired.
 read -r -d '' _SHELL_WRAPPER_BODY_TEMPLATE <<'REPOSKILLSBLOCK' || true
-# Installed by Repo Skills (https://github.com/rjwalters/repo) install.sh
+# Installed by Repo Skills (https://github.com/2AMLogic/repo) install.sh
 # --shell-wrapper. Surfaces a pending /repo:handoff note before Claude starts
 # — the human-visible half of the handoff workflow (the SessionStart hook
 # covers the half Claude itself sees). Edit outside these markers only;
@@ -427,7 +427,7 @@ shell_wrapper_uninstall() {  # <rcfile>
 # the markers), `codex()` falls through to a plain `command codex "$@"` — argv
 # is never altered and the dangerous flag is never injected on the fail path.
 read -r -d '' _SHELL_WRAPPER_CODEX_BODY_TEMPLATE <<'REPOSKILLSCODEXBLOCK' || true
-# Installed by Repo Skills (https://github.com/rjwalters/repo) install.sh
+# Installed by Repo Skills (https://github.com/2AMLogic/repo) install.sh
 # --shell-wrapper. Defines codex() (the interactive-operator default: bypass
 # approvals + sandbox) and codex-safe() (the real binary, unchanged, for
 # read-only/review work). This is an explicit OPERATOR opt-in for an

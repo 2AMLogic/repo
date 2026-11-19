@@ -1,6 +1,6 @@
 # Canonical organization preferences
 
-This directory in **rjwalters/repo** is authoritative. `default.json` holds
+This directory in **2AMLogic/repo** is authoritative. `default.json` holds
 shared defaults; `organizations/<lowercase-github-owner>.json` holds optional
 owner overrides. Both are read at the same default-branch commit. There is no
 registry of client repos to maintain, and no organization is changed merely

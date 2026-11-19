@@ -51,7 +51,10 @@
 # commands/repo/tests/test-deps-dependabot-alerts.sh,
 # commands/repo/tests/test-deps-no-ci.sh,
 # commands/repo/tests/test-handoff-preflight.sh,
-# commands/repo/tests/test-update-tools-squad.sh, and
+# commands/repo/tests/test-update-tools-squad.sh,
+# commands/repo/tests/test-run-sh-failure-output.sh,
+# commands/repo/tests/test-model-invocation-flags.sh,
+# commands/repo/tests/test-no-stale-owner-slug.sh, and
 # commands/repo/tests/test_optimize_ci.py.
 #
 # A completeness check at the end fails the run for any test-*.sh / test_*.py under
@@ -139,6 +142,34 @@ strip_ansi() { printf '%s\n' "$1" | sed $'s/\033\\[[0-9;]*m//g'; }
 # suite_count <Total|Passed|Failed> <suite-output> -> the N from that summary
 # line, or empty string if the suite did not print one.
 suite_count() { strip_ansi "$2" | awk -v f="$1:" '$1 == f { print $2; exit }'; }
+
+# print_failures <suite-output> -> each failing case's lines, indented for the
+# per-suite breakdown.
+#
+# The suites print a failing case as an indented `FAIL: <label>` line with its
+# diagnostic (Expected/Got/conc_diag detail from no(), or the guard suite's
+# `Got:` continuation) on SEPARATE, differently-indented lines, so the old
+# inline `grep -E '^ *FAIL'` kept the case name but dropped the one thing a
+# reader needs (repo#817). This prints each FAIL line plus its continuation
+# lines — indented lines up to the next PASS/FAIL/SKIP case line, the suite
+# summary block, or any blank/column-0 section line. When nothing parses (the
+# suite died before printing any case line), fall back to a bounded tail of
+# the output, exactly as the no-parseable-summary branch does.
+print_failures() {
+    local failures
+    failures="$(strip_ansi "$1" | awk '
+        /^[ \t]*FAIL/ { printing = 1; print; next }
+        printing && (/^[ \t]+(PASS|SKIP)/ ||
+                     /^[ \t]+(Total|Passed|Failed|Skipped):/ ||
+                     $0 == "" || $0 !~ /^[ \t]/) { printing = 0; next }
+        printing { print }
+    ')"
+    if [[ -n "$failures" ]]; then
+        printf '%s\n' "$failures" | sed 's/^/  /'
+    else
+        strip_ansi "$1" | tail -30 | sed 's/^/    /'
+    fi
+}
 
 # Per-suite breakdown lines, printed above the final aggregate totals so the
 # result is never one opaque number. The pass/fail columns are also accumulated
@@ -281,7 +312,7 @@ else
         [[ "$GD_FAIL" -eq 0 ]] && GD_FAIL=1  # non-zero exit with no counted failure
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-guard-destructive.sh" "$GD_PASS" "$GD_FAIL" "$GD_STATUS"
-        strip_ansi "$GD_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$GD_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-guard-destructive.sh" "$GD_PASS"
     fi
@@ -319,7 +350,7 @@ else
         [[ "$SS_FAIL" -eq 0 ]] && SS_FAIL=1  # non-zero exit with no counted failure
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-session-start-handoff.sh" "$SS_PASS" "$SS_FAIL" "$SS_STATUS"
-        strip_ansi "$SS_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$SS_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-session-start-handoff.sh" "$SS_PASS"
     fi
@@ -357,7 +388,7 @@ else
         [[ "$MD_FAIL" -eq 0 ]] && MD_FAIL=1  # non-zero exit with no counted failure
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-install-claude-md-markers.sh" "$MD_PASS" "$MD_FAIL" "$MD_STATUS"
-        strip_ansi "$MD_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$MD_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-install-claude-md-markers.sh" "$MD_PASS"
     fi
@@ -395,7 +426,7 @@ else
         [[ "$SC_FAIL" -eq 0 ]] && SC_FAIL=1  # non-zero exit with no counted failure
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-install-sidecar-untracking.sh" "$SC_PASS" "$SC_FAIL" "$SC_STATUS"
-        strip_ansi "$SC_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$SC_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-install-sidecar-untracking.sh" "$SC_PASS"
     fi
@@ -434,7 +465,7 @@ else
         [[ "$GC_FAIL" -eq 0 ]] && GC_FAIL=1  # non-zero exit with no counted failure
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-install-guard-coexistence.sh" "$GC_PASS" "$GC_FAIL" "$GC_STATUS"
-        strip_ansi "$GC_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$GC_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-install-guard-coexistence.sh" "$GC_PASS"
     fi
@@ -469,7 +500,7 @@ else
         [[ "$CX_FAIL" -eq 0 ]] && CX_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-install-codex-skill.sh" "$CX_PASS" "$CX_FAIL" "$CX_STATUS"
-        strip_ansi "$CX_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$CX_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-install-codex-skill.sh" "$CX_PASS"
     fi
@@ -506,7 +537,7 @@ else
         [[ "$SP_FAIL" -eq 0 ]] && SP_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-skill-parity.sh" "$SP_PASS" "$SP_FAIL" "$SP_STATUS"
-        strip_ansi "$SP_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$SP_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-skill-parity.sh" "$SP_PASS"
     fi
@@ -544,7 +575,7 @@ else
         [[ "$SW_FAIL" -eq 0 ]] && SW_FAIL=1  # non-zero exit with no counted failure
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-shell-wrapper.sh" "$SW_PASS" "$SW_FAIL" "$SW_STATUS"
-        strip_ansi "$SW_OUT" | grep -E '^ +FAIL' | sed 's/^/  /'
+        print_failures "$SW_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-shell-wrapper.sh" "$SW_PASS"
     fi
@@ -590,7 +621,7 @@ else
         [[ "$BL_FAIL" -eq 0 ]] && BL_FAIL=1  # non-zero exit with no counted failure
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-branches-loss-check.sh" "$BL_PASS" "$BL_FAIL" "$BL_STATUS"
-        strip_ansi "$BL_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$BL_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-branches-loss-check.sh" "$BL_PASS"
     fi
@@ -625,7 +656,7 @@ else
         [[ "$RR_FAIL" -eq 0 ]] && RR_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-repo-remote.sh" "$RR_PASS" "$RR_FAIL" "$RR_STATUS"
-        strip_ansi "$RR_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$RR_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-repo-remote.sh" "$RR_PASS"
     fi
@@ -666,7 +697,7 @@ else
         [[ "$VP_FAIL" -eq 0 ]] && VP_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-verify-fix-persistence.sh" "$VP_PASS" "$VP_FAIL" "$VP_STATUS"
-        strip_ansi "$VP_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$VP_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-verify-fix-persistence.sh" "$VP_PASS"
     fi
@@ -705,7 +736,7 @@ else
         [[ "$GA_FAIL" -eq 0 ]] && GA_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-gitignore-anchoring.sh" "$GA_PASS" "$GA_FAIL" "$GA_STATUS"
-        strip_ansi "$GA_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$GA_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-gitignore-anchoring.sh" "$GA_PASS"
     fi
@@ -744,7 +775,7 @@ else
         [[ "$LQ_FAIL" -eq 0 ]] && LQ_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-loom-quarantine-destination.sh" "$LQ_PASS" "$LQ_FAIL" "$LQ_STATUS"
-        strip_ansi "$LQ_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$LQ_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-loom-quarantine-destination.sh" "$LQ_PASS"
     fi
@@ -783,7 +814,7 @@ else
         [[ "$ES_FAIL" -eq 0 ]] && ES_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-early-sync-switch.sh" "$ES_PASS" "$ES_FAIL" "$ES_STATUS"
-        strip_ansi "$ES_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$ES_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-early-sync-switch.sh" "$ES_PASS"
     fi
@@ -823,7 +854,7 @@ else
         [[ "$TK_FAIL" -eq 0 ]] && TK_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-tidy-keep-tiers.sh" "$TK_PASS" "$TK_FAIL" "$TK_STATUS"
-        strip_ansi "$TK_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$TK_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-tidy-keep-tiers.sh" "$TK_PASS"
     fi
@@ -862,7 +893,7 @@ else
         [[ "$MD_FAIL" -eq 0 ]] && MD_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-tidy-mcp-dist-demotion.sh" "$MD_PASS" "$MD_FAIL" "$MD_STATUS"
-        strip_ansi "$MD_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$MD_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-tidy-mcp-dist-demotion.sh" "$MD_PASS"
     fi
@@ -901,7 +932,7 @@ else
         [[ "$TB_FAIL" -eq 0 ]] && TB_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-tidy-scan-batching.sh" "$TB_PASS" "$TB_FAIL" "$TB_STATUS"
-        strip_ansi "$TB_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$TB_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-tidy-scan-batching.sh" "$TB_PASS"
     fi
@@ -934,7 +965,7 @@ else
         [[ "$RI_FAIL" -eq 0 ]] && RI_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-resync-installed.sh" "$RI_PASS" "$RI_FAIL" "$RI_STATUS"
-        strip_ansi "$RI_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$RI_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-resync-installed.sh" "$RI_PASS"
     fi
@@ -972,7 +1003,7 @@ else
         [[ "$RG_FAIL" -eq 0 ]] && RG_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-resync-ignore.sh" "$RG_PASS" "$RG_FAIL" "$RG_STATUS"
-        strip_ansi "$RG_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$RG_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-resync-ignore.sh" "$RG_PASS"
     fi
@@ -1007,7 +1038,7 @@ else
         [[ "$IC_FAIL" -eq 0 ]] && IC_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-installer-contract.sh" "$IC_PASS" "$IC_FAIL" "$IC_STATUS"
-        strip_ansi "$IC_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$IC_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-installer-contract.sh" "$IC_PASS"
     fi
@@ -1033,6 +1064,10 @@ else
     SF_STATUS=$?
     SF_PASS="$(suite_count Passed "$SF_OUT")"
     SF_FAIL="$(suite_count Failed "$SF_OUT")"
+    # A whole-suite macOS skip (the suite's SKIP (macOS) block, #805 AC3) is
+    # neither pass nor fail — surface it in the breakdown note instead.
+    SF_NOTE="fork-network sweep"
+    printf '%s\n' "$SF_OUT" | grep -q '^SKIP (macOS)' && SF_NOTE+=" — macOS whole-suite skip active"
     if ! [[ "$SF_PASS" =~ ^[0-9]+$ && "$SF_FAIL" =~ ^[0-9]+$ ]]; then
         SF_PASS=0
         SF_FAIL=1
@@ -1043,13 +1078,13 @@ else
         [[ "$SF_FAIL" -eq 0 ]] && SF_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-repo-scrub-forks.sh" "$SF_PASS" "$SF_FAIL" "$SF_STATUS"
-        strip_ansi "$SF_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$SF_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-repo-scrub-forks.sh" "$SF_PASS"
     fi
     PASS=$((PASS + SF_PASS))
     FAIL=$((FAIL + SF_FAIL))
-    record_suite "test-repo-scrub-forks.sh" "$SF_PASS" "$SF_FAIL" "fork-network sweep"
+    record_suite "test-repo-scrub-forks.sh" "$SF_PASS" "$SF_FAIL" "$SF_NOTE"
 fi
 
 # /repo:scrub's prose contract (repo#174/#186), its /repo:all integration, and
@@ -1079,7 +1114,7 @@ else
         [[ "$SC_FAIL" -eq 0 ]] && SC_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-scrub-contract.sh" "$SC_PASS" "$SC_FAIL" "$SC_STATUS"
-        strip_ansi "$SC_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$SC_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-scrub-contract.sh" "$SC_PASS"
     fi
@@ -1113,7 +1148,7 @@ else
         [[ "$LP_FAIL" -eq 0 ]] && LP_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-links-precision.sh" "$LP_PASS" "$LP_FAIL" "$LP_STATUS"
-        strip_ansi "$LP_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$LP_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-links-precision.sh" "$LP_PASS"
     fi
@@ -1149,7 +1184,7 @@ else
         [[ "$GE_FAIL" -eq 0 ]] && GE_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-guard-equivalence.sh" "$GE_PASS" "$GE_FAIL" "$GE_STATUS"
-        strip_ansi "$GE_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$GE_OUT"
     elif [[ "$GE_PASS" -eq 0 && "${GE_SKIP:-0}" -gt 0 ]]; then
         # Vendored guard absent — a real, reportable outcome, never a silent pass.
         printf '  ok   %-52s -> SKIPPED (no vendored guard to compare against)\n' \
@@ -1161,6 +1196,40 @@ else
     PASS=$((PASS + GE_PASS))
     FAIL=$((FAIL + GE_FAIL))
     record_suite "test-guard-equivalence.sh" "$GE_PASS" "$GE_FAIL" "vendored-guard equivalence"
+fi
+
+# Quoted vs unquoted guard-destructive.sh settings entry (repo#798): the
+# installer's deferral heal and the uninstaller must remove both forms, keep
+# other hooks, and be a no-op on re-run. Same delegation shape as above.
+echo
+echo "-- guard entry forms, quoted vs unquoted (delegated suite) --"
+GF_TEST="$TESTS_DIR/../../../commands/repo/tests/test-guard-entry-forms.sh"
+if [[ ! -f "$GF_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-guard-entry-forms.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-guard-entry-forms.sh" "$GF_TEST"
+else
+    GF_OUT="$(bash "$GF_TEST" 2>&1)"
+    GF_STATUS=$?
+    GF_PASS="$(suite_count Passed "$GF_OUT")"
+    GF_FAIL="$(suite_count Failed "$GF_OUT")"
+    if ! [[ "$GF_PASS" =~ ^[0-9]+$ && "$GF_FAIL" =~ ^[0-9]+$ ]]; then
+        GF_PASS=0
+        GF_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-guard-entry-forms.sh" "$GF_STATUS"
+        strip_ansi "$GF_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$GF_STATUS" -ne 0 || "$GF_FAIL" -ne 0 ]]; then
+        [[ "$GF_FAIL" -eq 0 ]] && GF_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-guard-entry-forms.sh" "$GF_PASS" "$GF_FAIL" "$GF_STATUS"
+        strip_ansi "$GF_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-guard-entry-forms.sh" "$GF_PASS"
+    fi
+    PASS=$((PASS + GF_PASS))
+    FAIL=$((FAIL + GF_FAIL))
+    record_suite "test-guard-entry-forms.sh" "$GF_PASS" "$GF_FAIL" "guard entry forms"
 fi
 
 # README.md's Repository layout block vs disk (repo#212): every row/glob's
@@ -1190,7 +1259,7 @@ else
         [[ "$RL_FAIL" -eq 0 ]] && RL_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-readme-layout-block.sh" "$RL_PASS" "$RL_FAIL" "$RL_STATUS"
-        strip_ansi "$RL_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$RL_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-readme-layout-block.sh" "$RL_PASS"
     fi
@@ -1226,7 +1295,7 @@ else
         [[ "$ST_FAIL" -eq 0 ]] && ST_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-skill-commands-table.sh" "$ST_PASS" "$ST_FAIL" "$ST_STATUS"
-        strip_ansi "$ST_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$ST_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-skill-commands-table.sh" "$ST_PASS"
     fi
@@ -1264,7 +1333,7 @@ else
         [[ "$SU_FAIL" -eq 0 ]] && SU_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-sudo-rm-guard-contract.sh" "$SU_PASS" "$SU_FAIL" "$SU_STATUS"
-        strip_ansi "$SU_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$SU_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-sudo-rm-guard-contract.sh" "$SU_PASS"
     fi
@@ -1298,7 +1367,7 @@ else
         [[ "$VC_FAIL" -eq 0 ]] && VC_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-release-version-citation-check.sh" "$VC_PASS" "$VC_FAIL" "$VC_STATUS"
-        strip_ansi "$VC_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$VC_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-release-version-citation-check.sh" "$VC_PASS"
     fi
@@ -1333,7 +1402,7 @@ else
         [[ "$MW_FAIL" -eq 0 ]] && MW_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-changelog-merged-work-check.sh" "$MW_PASS" "$MW_FAIL" "$MW_STATUS"
-        strip_ansi "$MW_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$MW_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-changelog-merged-work-check.sh" "$MW_PASS"
     fi
@@ -1369,7 +1438,7 @@ else
         [[ "$RN_FAIL" -eq 0 ]] && RN_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-release-notes-extraction.sh" "$RN_PASS" "$RN_FAIL" "$RN_STATUS"
-        strip_ansi "$RN_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$RN_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-release-notes-extraction.sh" "$RN_PASS"
     fi
@@ -1405,7 +1474,7 @@ else
         [[ "$SL_FAIL" -eq 0 ]] && SL_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-work-log-docs-pr-self-loop.sh" "$SL_PASS" "$SL_FAIL" "$SL_STATUS"
-        strip_ansi "$SL_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$SL_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-work-log-docs-pr-self-loop.sh" "$SL_PASS"
     fi
@@ -1441,7 +1510,7 @@ else
         [[ "$FS_FAIL" -eq 0 ]] && FS_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-followups-scrub-step.sh" "$FS_PASS" "$FS_FAIL" "$FS_STATUS"
-        strip_ansi "$FS_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$FS_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-followups-scrub-step.sh" "$FS_PASS"
     fi
@@ -1478,7 +1547,7 @@ else
         [[ "$FD_FAIL" -eq 0 ]] && FD_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-followups-dedup-step.sh" "$FD_PASS" "$FD_FAIL" "$FD_STATUS"
-        strip_ansi "$FD_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$FD_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-followups-dedup-step.sh" "$FD_PASS"
     fi
@@ -1515,7 +1584,7 @@ else
         [[ "$FR_FAIL" -eq 0 ]] && FR_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-followups-requested-by.sh" "$FR_PASS" "$FR_FAIL" "$FR_STATUS"
-        strip_ansi "$FR_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$FR_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-followups-requested-by.sh" "$FR_PASS"
     fi
@@ -1551,7 +1620,7 @@ else
         [[ "$OS_FAIL" -eq 0 ]] && OS_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-all-orphans-stage.sh" "$OS_PASS" "$OS_FAIL" "$OS_STATUS"
-        strip_ansi "$OS_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$OS_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-all-orphans-stage.sh" "$OS_PASS"
     fi
@@ -1590,7 +1659,7 @@ else
         [[ "$LD_FAIL" -eq 0 ]] && LD_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-check-label-descriptions.sh" "$LD_PASS" "$LD_FAIL" "$LD_STATUS"
-        strip_ansi "$LD_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$LD_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-check-label-descriptions.sh" "$LD_PASS"
     fi
@@ -1627,7 +1696,7 @@ else
         [[ "$JE_FAIL" -eq 0 ]] && JE_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-json-escape-parity.sh" "$JE_PASS" "$JE_FAIL" "$JE_STATUS"
-        strip_ansi "$JE_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$JE_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-json-escape-parity.sh" "$JE_PASS"
     fi
@@ -1663,7 +1732,7 @@ else
         [[ "$AM_FAIL" -eq 0 ]] && AM_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-assert-matches-sigpipe.sh" "$AM_PASS" "$AM_FAIL" "$AM_STATUS"
-        strip_ansi "$AM_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$AM_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-assert-matches-sigpipe.sh" "$AM_PASS"
     fi
@@ -1697,7 +1766,7 @@ else
         [[ "$VS_FAIL" -eq 0 ]] && VS_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-version-script.sh" "$VS_PASS" "$VS_FAIL" "$VS_STATUS"
-        strip_ansi "$VS_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$VS_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-version-script.sh" "$VS_PASS"
     fi
@@ -1733,7 +1802,7 @@ else
         [[ "$VB_FAIL" -eq 0 ]] && VB_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-check-installed-surface-version-bump.sh" "$VB_PASS" "$VB_FAIL" "$VB_STATUS"
-        strip_ansi "$VB_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$VB_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-check-installed-surface-version-bump.sh" "$VB_PASS"
     fi
@@ -1769,7 +1838,7 @@ else
         [[ "$DP_FAIL" -eq 0 ]] && DP_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-deps-security-updates-paused.sh" "$DP_PASS" "$DP_FAIL" "$DP_STATUS"
-        strip_ansi "$DP_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$DP_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-deps-security-updates-paused.sh" "$DP_PASS"
     fi
@@ -1804,7 +1873,7 @@ else
         [[ "$DA_FAIL" -eq 0 ]] && DA_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-deps-dependabot-alerts.sh" "$DA_PASS" "$DA_FAIL" "$DA_STATUS"
-        strip_ansi "$DA_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$DA_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-deps-dependabot-alerts.sh" "$DA_PASS"
     fi
@@ -1840,7 +1909,7 @@ else
         [[ "$DN_FAIL" -eq 0 ]] && DN_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-deps-no-ci.sh" "$DN_PASS" "$DN_FAIL" "$DN_STATUS"
-        strip_ansi "$DN_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$DN_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-deps-no-ci.sh" "$DN_PASS"
     fi
@@ -1875,7 +1944,7 @@ else
         [[ "$HP_FAIL" -eq 0 ]] && HP_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-handoff-preflight.sh" "$HP_PASS" "$HP_FAIL" "$HP_STATUS"
-        strip_ansi "$HP_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$HP_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-handoff-preflight.sh" "$HP_PASS"
     fi
@@ -1909,7 +1978,7 @@ else
         [[ "$US_FAIL" -eq 0 ]] && US_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-update-tools-squad.sh" "$US_PASS" "$US_FAIL" "$US_STATUS"
-        strip_ansi "$US_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$US_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-update-tools-squad.sh" "$US_PASS"
     fi
@@ -1949,13 +2018,51 @@ else
         [[ "$GF_FAIL" -eq 0 ]] && GF_FAIL=1
         printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
             "test-git-fixture-hermeticity.sh" "$GF_PASS" "$GF_FAIL" "$GF_STATUS"
-        strip_ansi "$GF_OUT" | grep -E '^ *FAIL' | sed 's/^/  /'
+        print_failures "$GF_OUT"
     else
         printf '  ok   %-52s -> %s cases pass\n' "test-git-fixture-hermeticity.sh" "$GF_PASS"
     fi
     PASS=$((PASS + GF_PASS))
     FAIL=$((FAIL + GF_FAIL))
     record_suite "test-git-fixture-hermeticity.sh" "$GF_PASS" "$GF_FAIL" "git-fixture hermeticity (repo#518)"
+fi
+
+# run.sh's own output-rendering helpers (print_failures / strip_ansi /
+# suite_count, repo#820): green CI never executes them — print_failures runs
+# only on a failing suite, and a regression there would silently strip the
+# failure diagnostics repo#817 restored. This delegated suite extracts the
+# helpers from this file itself and feeds them fixtures built from the real
+# suite printers, so the rendering contracts stay pinned. Also the only place
+# the macOS/BSD-awk CI job exercises this awk code.
+echo
+echo "-- run.sh failure-output helpers (delegated suite) --"
+FO_TEST="$TESTS_DIR/../../../commands/repo/tests/test-run-sh-failure-output.sh"
+if [[ ! -f "$FO_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-run-sh-failure-output.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-run-sh-failure-output.sh" "$FO_TEST"
+else
+    FO_OUT="$(bash "$FO_TEST" 2>&1)"
+    FO_STATUS=$?
+    FO_PASS="$(suite_count Passed "$FO_OUT")"
+    FO_FAIL="$(suite_count Failed "$FO_OUT")"
+    if ! [[ "$FO_PASS" =~ ^[0-9]+$ && "$FO_FAIL" =~ ^[0-9]+$ ]]; then
+        FO_PASS=0
+        FO_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-run-sh-failure-output.sh" "$FO_STATUS"
+        strip_ansi "$FO_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$FO_STATUS" -ne 0 || "$FO_FAIL" -ne 0 ]]; then
+        [[ "$FO_FAIL" -eq 0 ]] && FO_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-run-sh-failure-output.sh" "$FO_PASS" "$FO_FAIL" "$FO_STATUS"
+        print_failures "$FO_OUT"
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-run-sh-failure-output.sh" "$FO_PASS"
+    fi
+    PASS=$((PASS + FO_PASS))
+    FAIL=$((FAIL + FO_FAIL))
+    record_suite "test-run-sh-failure-output.sh" "$FO_PASS" "$FO_FAIL" "run.sh failure-output helpers"
 fi
 
 echo
@@ -1998,6 +2105,77 @@ fi
 PASS=$((PASS + OC_PASS)); FAIL=$((FAIL + OC_FAIL))
 record_suite "test_optimize_ci.py" "$OC_PASS" "$OC_FAIL" "optimize-ci workflow audit"
 printf '  optimize-ci: %s passed, %s failed\n' "$OC_PASS" "$OC_FAIL"
+
+# The repo#832 model-invocation flags: nine commands carry frontmatter
+# disable-model-invocation: true (out of the model-visible listing, still
+# typed-invocable). This pins the exact flagged set so flags cannot silently
+# appear on, or vanish from, a command. Same delegation shape as every suite
+# above.
+echo
+echo "-- model-invocation flags on commands/repo/*.md (delegated suite) --"
+MI_TEST="$TESTS_DIR/../../../commands/repo/tests/test-model-invocation-flags.sh"
+if [[ ! -f "$MI_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-model-invocation-flags.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-model-invocation-flags.sh" "$MI_TEST"
+else
+    MI_OUT="$(bash "$MI_TEST" 2>&1)"
+    MI_STATUS=$?
+    MI_PASS="$(suite_count Passed "$MI_OUT")"
+    MI_FAIL="$(suite_count Failed "$MI_OUT")"
+    if ! [[ "$MI_PASS" =~ ^[0-9]+$ && "$MI_FAIL" =~ ^[0-9]+$ ]]; then
+        MI_PASS=0
+        MI_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-model-invocation-flags.sh" "$MI_STATUS"
+        strip_ansi "$MI_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$MI_STATUS" -ne 0 || "$MI_FAIL" -ne 0 ]]; then
+        [[ "$MI_FAIL" -eq 0 ]] && MI_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-model-invocation-flags.sh" "$MI_PASS" "$MI_FAIL" "$MI_STATUS"
+        print_failures "$MI_OUT"
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-model-invocation-flags.sh" "$MI_PASS"
+    fi
+    PASS=$((PASS + MI_PASS))
+    FAIL=$((FAIL + MI_FAIL))
+    record_suite "test-model-invocation-flags.sh" "$MI_PASS" "$MI_FAIL" "repo#832 model-invocation flag set"
+fi
+
+# Stale owner slug (#844): after the move to 2AMLogic/repo, the shipped
+# surface must not name the pre-move owner slug except in history prose and
+# issue/PR-number references. Same delegation shape as every suite above.
+echo
+echo "-- no stale owner slug in shipped files (delegated suite) --"
+NS_TEST="$TESTS_DIR/../../../commands/repo/tests/test-no-stale-owner-slug.sh"
+if [[ ! -f "$NS_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-no-stale-owner-slug.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-no-stale-owner-slug.sh" "$NS_TEST"
+else
+    NS_OUT="$(bash "$NS_TEST" 2>&1)"
+    NS_STATUS=$?
+    NS_PASS="$(suite_count Passed "$NS_OUT")"
+    NS_FAIL="$(suite_count Failed "$NS_OUT")"
+    if ! [[ "$NS_PASS" =~ ^[0-9]+$ && "$NS_FAIL" =~ ^[0-9]+$ ]]; then
+        NS_PASS=0
+        NS_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-no-stale-owner-slug.sh" "$NS_STATUS"
+        strip_ansi "$NS_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$NS_STATUS" -ne 0 || "$NS_FAIL" -ne 0 ]]; then
+        [[ "$NS_FAIL" -eq 0 ]] && NS_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-no-stale-owner-slug.sh" "$NS_PASS" "$NS_FAIL" "$NS_STATUS"
+        print_failures "$NS_OUT"
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-no-stale-owner-slug.sh" "$NS_PASS"
+    fi
+    PASS=$((PASS + NS_PASS))
+    FAIL=$((FAIL + NS_FAIL))
+    record_suite "test-no-stale-owner-slug.sh" "$NS_PASS" "$NS_FAIL" "no stale owner slug outside history refs"
+fi
+
 # Completeness guard (#774): every test file must be wired into the gate.
 # Enumerate the suites and require each basename to appear either in this
 # file's CODE (comment lines stripped, so the header list alone cannot satisfy

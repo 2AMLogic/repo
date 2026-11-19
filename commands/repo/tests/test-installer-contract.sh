@@ -560,7 +560,7 @@ assert_contains "the contract explains how the repo column stays honest" \
 # The two consumer commands must LINK here rather than restate the rules.
 UT="$(cat "$REPO_ROOT/commands/repo/update-tools.md")"
 FU="$(cat "$REPO_ROOT/commands/repo/followups.md")"
-CONTRACT_URL="https://github.com/rjwalters/repo/blob/main/INSTALLER-CONTRACT.md"
+CONTRACT_URL="https://github.com/2AMLogic/repo/blob/main/INSTALLER-CONTRACT.md"
 assert_contains "update-tools.md links to the contract" "$UT" "$CONTRACT_URL"
 assert_contains "followups.md links to the contract" "$FU" "$CONTRACT_URL"
 # Installed command files live in consumer repos where a relative link would

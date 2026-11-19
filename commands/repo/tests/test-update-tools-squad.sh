@@ -28,12 +28,13 @@ has "update-tools gives release-install step"     "$UPDATE_MD" 'scripts/release-
 has "update-tools gives squad installer command"  "$UPDATE_MD" 'bash <SQUAD_HOME>/current/install.sh [--no-codex] [--no-link] <this-repo>'
 has "update-tools notes no C7 resync for squad"   "$UPDATE_MD" 'squad ships no C7 resync-installed.sh'
 has "update-tools states release-path rule"       "$UPDATE_MD" 'package: @rjwalters/squad'
-has "update-tools infers slug from package name"  "$UPDATE_MD" '`@scope/name` → `scope/name`'
+has "update-tools infers slug from a known-package map" "$UPDATE_MD" 'known-package map (`@rjwalters/squad` → `2AMLogic/squad`)'
+has "update-tools never equates npm scope with owner" "$UPDATE_MD" 'never assume the npm scope equals the GitHub owner'
 has "update-tools report row wording"             "$UPDATE_MD" 'current (commit drift unknown — source is a release install, not a source clone)'
 has "update-tools adoption signature"             "$UPDATE_MD" 'differs from its installed copy'
 has "update-tools names legacy adoption"          "$UPDATE_MD" 'legacy (pre-receipt) install needing manual adoption'
 has "followups states release-path rule"          "$FOLLOWUPS_MD" 'package: @rjwalters/squad'
-has "followups infers slug from package name"     "$FOLLOWUPS_MD" '`@scope/name` → `scope/name`'
+has "followups infers slug from a known-package map" "$FOLLOWUPS_MD" 'known-package map (`@rjwalters/squad` → `2AMLogic/squad`)'
 
 echo ""
 echo "Passed: $PASS"

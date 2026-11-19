@@ -25,7 +25,7 @@ Repo is a collection of skills for keeping any git repository healthy and produc
 | `/repo:update-tools` | Check installed tool packages (Loom, Anvil, …) against their sources and offer updates |
 | `/repo:deps` | Third-party dependency currency — reconcile organization policy, Dependabot-first setup with cooldown (Renovate opt-in), and bot PRs; report-only under `--check` |
 | `/repo:optimize-ci` | Audit GitHub Actions for wasted CI minutes — change-relevance path filtering (required-check safe), cache keys, superseded runs; ranked by measured savings, report-only unless `--apply` |
-| `/repo:org-policy` | Preview or deploy canonical rjwalters/repo preferences to the client's GitHub owner/.github repository through a policy PR |
+| `/repo:org-policy` | Preview or deploy canonical 2AMLogic/repo preferences to the client's GitHub owner/.github repository through a policy PR |
 | `/repo:decide` | Put operator decisions to the operator as ranked options — best to worst, each with why — so they can answer with a number |
 | `/repo:followups` | Capture follow-on work from this session and file it as issues — here or in upstream tool repos, always confirmed first |
 | `/repo:branches` | Branch & worktree hygiene — merged PRs, orphaned worktree branches, stale worktrees |
@@ -36,7 +36,7 @@ Repo is a collection of skills for keeping any git repository healthy and produc
 | `/repo:readme` | Check README accuracy against actual directory contents |
 
 Organization preferences are maintained in [`policies/`](policies/README.md) in
-rjwalters/repo. From any client, `/repo:org-policy --install` previews and opens
+2AMLogic/repo. From any client, `/repo:org-policy --install` previews and opens
 a PR installing the resolved preferences into that owner's `.github` repository.
 `/repo:deps` then handles client adoption. The default is 14-day routine updates,
 one-day advisory-backed security updates, and a separate opt-in for automerge.
