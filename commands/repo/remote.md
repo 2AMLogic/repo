@@ -1286,7 +1286,7 @@ may go CPU-idle, do one of:
   fleet, with no interactive operator): use a **short window such as
   `REPO_REMOTE_IDLE_SHUTDOWN_MIN=20`**. These hosts have no human session to
   protect, so the "operator forgot a session" margin is pure wasted spend — on a
-  c7i.2xlarge-class worker (~$8.60/day) the difference between a 120- and a
+  c7i.2xlarge-class worker (about 8.60 USD/day) the difference between a 120- and a
   20-minute window is real money once the fleet goes quiet.
 
 **Idle-exit marker contract (`REPO_REMOTE_IDLE_MARKER`).** For daemon-managed
@@ -1547,7 +1547,7 @@ Hours of repeated builds or full test-suite runs drain that bucket, and the box
 then *looks* broken — tests time out, a 15-minute suite takes 100 — when its
 disk is simply throttled. gp3 has a flat **3,000 IOPS / 125 MiB/s** baseline
 included in its price, with no burst credits to run out; in AWS's own EBS
-pricing examples it is also cheaper per GB than gp2 ($0.08 vs $0.10 per
+pricing examples it is also cheaper per GB than gp2 (0.08 USD vs 0.10 USD per
 GB-month — check the [EBS pricing page](https://aws.amazon.com/ebs/pricing/)
 for your region rather than relying on that ratio).
 
@@ -1622,7 +1622,7 @@ long runs) but have opposite fixes. On the host:
 cat /proc/pressure/io      # I/O pressure stall info: "some avg10/avg60/avg300" = % of time tasks waited on I/O
 cat /proc/pressure/cpu     # the same for CPU — compare the two
 vmstat 5                   # high "wa" + many "b" (blocked) with low "us"/"sy" => disk-bound
-ps -eo state,pid,pcpu,comm | awk '$1 == "D"'   # processes stuck in uninterruptible disk wait
+ps -eo state,pid,pcpu,comm | awk '$(1) == "D"'   # processes stuck in uninterruptible disk wait
 iostat -x 5                # (sysstat) per-device r/s, w/s, await, %util
 ```
 

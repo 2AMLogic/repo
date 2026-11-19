@@ -43,6 +43,7 @@
 # commands/repo/tests/test-check-label-descriptions.sh,
 # commands/repo/tests/test-json-escape-parity.sh,
 # commands/repo/tests/test-release-notes-extraction.sh,
+# commands/repo/tests/test-no-positional-params.sh,
 # commands/repo/tests/test-tidy-mcp-dist-demotion.sh,
 # commands/repo/tests/test-tidy-scan-batching.sh,
 # commands/repo/tests/test-assert-matches-sigpipe.sh,
@@ -2174,6 +2175,43 @@ else
     PASS=$((PASS + NS_PASS))
     FAIL=$((FAIL + NS_FAIL))
     record_suite "test-no-stale-owner-slug.sh" "$NS_PASS" "$NS_FAIL" "no stale owner slug outside history refs"
+fi
+
+# Bare skill-argument positional tokens ($0-$9, $ARGUMENTS) in first-party
+# command/skill Markdown get substituted by Claude Code when the command is
+# invoked with arguments, silently rewriting snippets the operator is meant to
+# copy verbatim (repo#858). The lint holds those files to the substitution-
+# proof spellings (braced shell "${1}", awk $(0)/$(1), spelled-out currency).
+# Same delegation shape as every suite above.
+echo
+echo "-- no positional tokens in command/skill Markdown (delegated suite) --"
+NP_TEST="$TESTS_DIR/../../../commands/repo/tests/test-no-positional-params.sh"
+if [[ ! -f "$NP_TEST" ]]; then
+    FAIL=$((FAIL + 1))
+    record_suite "test-no-positional-params.sh" 0 1 "not found"
+    printf '  FAIL %-52s -> not found at %s\n' "test-no-positional-params.sh" "$NP_TEST"
+else
+    NP_OUT="$(bash "$NP_TEST" 2>&1)"
+    NP_STATUS=$?
+    NP_PASS="$(suite_count Passed "$NP_OUT")"
+    NP_FAIL="$(suite_count Failed "$NP_OUT")"
+    if ! [[ "$NP_PASS" =~ ^[0-9]+$ && "$NP_FAIL" =~ ^[0-9]+$ ]]; then
+        NP_PASS=0
+        NP_FAIL=1
+        printf '  FAIL %-52s -> no parseable summary (exit %s); output tail follows\n' \
+            "test-no-positional-params.sh" "$NP_STATUS"
+        strip_ansi "$NP_OUT" | tail -30 | sed 's/^/    /'
+    elif [[ "$NP_STATUS" -ne 0 || "$NP_FAIL" -ne 0 ]]; then
+        [[ "$NP_FAIL" -eq 0 ]] && NP_FAIL=1
+        printf '  FAIL %-52s -> %s pass, %s fail (exit %s); failures follow\n' \
+            "test-no-positional-params.sh" "$NP_PASS" "$NP_FAIL" "$NP_STATUS"
+        print_failures "$NP_OUT"
+    else
+        printf '  ok   %-52s -> %s cases pass\n' "test-no-positional-params.sh" "$NP_PASS"
+    fi
+    PASS=$((PASS + NP_PASS))
+    FAIL=$((FAIL + NP_FAIL))
+    record_suite "test-no-positional-params.sh" "$NP_PASS" "$NP_FAIL" "no bare skill-argument tokens in Markdown"
 fi
 
 # Completeness guard (#774): every test file must be wired into the gate.
