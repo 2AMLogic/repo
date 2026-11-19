@@ -4,7 +4,7 @@ Repo Skills is a toolbox of general repository-hygiene and environment commands
 (`/repo:<verb>` in Claude Code, `$repo-<verb>` in Codex CLI) plus the installer,
 guard hook and installer contract that deliver them into consumer repos.
 
-Status as of 2026-11-13, `main` @ `c77d1ba`, `VERSION` 0.26.1 (tag `v0.26.1`).
+Status as of 2026-11-19, `main` @ `98c89a6`, `VERSION` 0.26.11 (tag `v0.26.11`).
 
 The label-by-label queue is [`WORK_PLAN.md`](../WORK_PLAN.md) and the merge
 history is [`WORK_LOG.md`](../WORK_LOG.md); both are generated, not repeated here.
@@ -20,6 +20,9 @@ Done and evidenced on `main`:
 - **Installer contract C1-C10** (`INSTALLER-CONTRACT.md`) is normative and this
   repo's own column of its conformance table is verified on every test run
   (`commands/repo/tests/test-installer-contract.sh`).
+  The 2026-11-14 checks covered every anvil and squad cell and loom's C1, C2,
+  C4 and C8. The final update for #804 on 2026-11-19 reconfirmed squad's C4
+  and recorded that loom's C9 had never been observed.
 - **Codex packaging.** Every command is its own native skill and `$repo` is a
   thin router with no `references/` copies (#676; PR #728 merged).
 - **Destructive-command guard** (`hooks/repo/guard-destructive.sh`): worktree
@@ -60,12 +63,12 @@ Can start today. Every merge in this repo currently needs a human (see
    unanticipated). Done when: a stubbed 403 on the target produces a message
    that says the repository exists or is hidden and that access was refused,
    with a test in `commands/repo/tests/test_org_policy.py`. Tracked as #803.
-3. **Re-observe the other tools' columns of the conformance table.**
-   `INSTALLER-CONTRACT.md` says the loom/anvil/squad columns were observed
-   2026-08-06 (C10 on 2026-09-29) and its C9 row still reads "not yet checked
-   (repo#385)" for all three. Done when: each cell of every column whose
-   clone the builder can read is re-derived with the section's own spot-check
-   commands and the observation date is updated. Tracked as #804.
+3. **Check the six loom cells that require a full install.** The last
+   observations for C3 and C5-C7 are from 2026-08-06 (repo#156), and C10 is
+   from 2026-09-29 (repo#511). C9 still needs its first observation. On a
+   host that permits a full loom install, run the `INSTALLER-CONTRACT.md`
+   spot-checks for these six cells and record the results and observation date
+   in the table. Tracked as #816.
 4. **Run the full suite on macOS in CI.** The `test-macos` job runs only
    `test-repo-remote.sh` and states the full `pnpm test` suite is out of
    scope; #754 and #755 were both macOS-only failures that Linux CI missed.
@@ -119,8 +122,7 @@ Can start today. Every merge in this repo currently needs a human (see
   the command #765 removes. #424 is an auto-maintained digest, not work.
 
 Open issues with buildable work and no PR: none. Items 2-4 above are the only
-new work a builder can pick up, and each now has an issue (#803, #804, #805),
-filed alongside this roadmap.
+new work a builder can pick up, tracked in #803, #816 and #805 respectively.
 
 ## Not planned
 
