@@ -19,7 +19,9 @@ Done and evidenced on `main`:
   `test-readme-layout-block.sh`.
 - **Installer contract C1-C10** (`INSTALLER-CONTRACT.md`) is normative and this
   repo's own column of its conformance table is verified on every test run
-  (`commands/repo/tests/test-installer-contract.sh`).
+  (`commands/repo/tests/test-installer-contract.sh`); `install.sh` and
+  `uninstall.sh` match bare and double-quoted guard-hook entries in consumers'
+  `settings.json` (#798, PR #800).
 - **Codex packaging.** Every command is its own native skill and `$repo` is a
   thin router with no `references/` copies (#676; PR #728 merged).
 - **Destructive-command guard** (`hooks/repo/guard-destructive.sh`): worktree
@@ -29,7 +31,8 @@ Done and evidenced on `main`:
   recorded in [`guard-confinement-review.md`](guard-confinement-review.md).
 - **Dependabot-first organization policy.** All five phases of #638
   (#652-#656) are closed; `policies/default.json` is the canonical source that
-  `/repo:org-policy` reads.
+  `/repo:org-policy` reads, and a 403 on the policy repository is named as
+  access refused rather than surfacing as a raw error (#803, PR #808).
 - **Resync and handoff fixes in 0.26.1:** resync from a linked worktree (#793,
   PR #794), handoff preflight hook spellings (#789, PR #791), staging-mode
   guidance in `/repo:update-tools` (#792, PR #795).
@@ -37,8 +40,9 @@ Done and evidenced on `main`:
   `VERSION`; tags are cut on each bump (#669); CI runs the
   installed-surface version-bump gate as a visible, non-required check.
 - **Tests.** `pnpm test` runs `hooks/repo/tests/run.sh` on Linux and fails on
-  any undelegated suite (#774, PR #776); one suite (`test-repo-remote.sh`)
-  also runs on macOS with BSD awk and bash 3.2 (#771, PR #772).
+  any undelegated suite (#774, PR #776); the full suite also runs on macOS
+  with BSD awk/sed and bash 3.2 — the `test-macos` job invokes
+  `/bin/bash hooks/repo/tests/run.sh` on `macos-latest` (#805, PR #807).
 
 Known drift: `CHANGELOG.md` has no version heading newer than `0.16.2`;
 everything since sits under `Unreleased` (#769, fix in PR #770, held).
@@ -53,32 +57,17 @@ Can start today. Every merge in this repo currently needs a human (see
    `loom:merge-conflict`. Done when: #766 merges cleanly against `main`,
    `pnpm test` passes, and install/resync remove a retired command's installed
    files as #765 requires.
-2. **Name a 403 on the policy repository in `/repo:org-policy`.**
-   `scripts/repo/repo-org-policy.py` treats only `HTTP 404` as "missing"; a
-   403 on `repos/OWNER/.github` surfaces as a raw `GitHub GET ... failed`
-   error before `classify_absence()` runs (the case #478 calls out as
-   unanticipated). Done when: a stubbed 403 on the target produces a message
-   that says the repository exists or is hidden and that access was refused,
-   with a test in `commands/repo/tests/test_org_policy.py`. Tracked as #803.
-3. **Re-observe the other tools' columns of the conformance table.**
+2. **Re-observe the other tools' columns of the conformance table.**
    `INSTALLER-CONTRACT.md` says the loom/anvil/squad columns were observed
    2026-08-06 (C10 on 2026-09-29) and its C9 row still reads "not yet checked
    (repo#385)" for all three. Done when: each cell of every column whose
    clone the builder can read is re-derived with the section's own spot-check
    commands and the observation date is updated. Tracked as #804.
-4. **Run the full suite on macOS in CI.** The `test-macos` job runs only
-   `test-repo-remote.sh` and states the full `pnpm test` suite is out of
-   scope; #754 and #755 were both macOS-only failures that Linux CI missed.
-   Done when: a non-required job runs `hooks/repo/tests/run.sh` under
-   `/bin/bash` on `macos-latest` and is green, with any portability failures
-   it exposes fixed or filed. Tracked as #805. This touches
-   `.github/workflows/`, so its merge will be held for a human like #770.
 
 ## Next
 
 - **Trim what only `/repo:remote` used**, once #766 lands: `Dockerfile` and
-  `.github/workflows/docker-build.yml` if #766 leaves them, the `test-macos`
-  job's target suite (item 4 above replaces it), and the row for
+  `.github/workflows/docker-build.yml` if #766 leaves them, and the row for
   `remote-exec-provenance.md` in [`docs/README.md`](README.md). Done when:
   `grep -ri 'repo-remote\|repo:remote'` over tracked files outside
   `CHANGELOG.md`, `WORK_LOG.md` and `work_log/` returns nothing unintended.
@@ -106,9 +95,6 @@ Can start today. Every merge in this repo currently needs a human (see
   human merge.
 - **PR #770** (CHANGELOG headings, #769): approved; held because it changes
   `.github/workflows/ci.yml`.
-- **PR #800** (quoted guard-hook entry left in `settings.json`, #798):
-  approved; held on blast radius, since it changes how `install.sh` and
-  `uninstall.sh` rewrite consumers' `settings.json`.
 - **#676**: code complete; the remaining criterion is a live Codex CLI session
   selecting and invoking representative `$repo-<verb>` skills.
 - **#638**: code complete; open until the owner-side Mend Renovate App removal
@@ -118,9 +104,8 @@ Can start today. Every merge in this repo currently needs a human (see
 - **#565**: its remaining step is an attended VM check of `/repo:remote`,
   the command #765 removes. #424 is an auto-maintained digest, not work.
 
-Open issues with buildable work and no PR: none. Items 2-4 above are the only
-new work a builder can pick up, and each now has an issue (#803, #804, #805),
-filed alongside this roadmap.
+Open issues with buildable work and no PR: none. Item 2 above (#804) is the
+only new work a builder can pick up.
 
 ## Not planned
 
