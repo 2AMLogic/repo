@@ -770,10 +770,14 @@ RETIRE_BIN="$SCRATCH/retirement-refusal-bin"
 mkdir -p "$RETIRE_BIN"
 RETIRE_REAL_RM="$(command -v rm)"
 RETIRE_REAL_RMDIR="$(command -v rmdir)"
-export RETIRE_REAL_RM RETIRE_REAL_RMDIR
+RETIRE_REAL_MV="$(command -v mv)"
+export RETIRE_REAL_RM RETIRE_REAL_RMDIR RETIRE_REAL_MV
 cat >"$RETIRE_BIN/rm" <<'SHIM'
 #!/usr/bin/env bash
 for path in "$@"; do
+  if [[ "$path" == ./* && "$(pwd -P)" == "$RETIRE_BLOCKED_DIR" ]]; then
+    path="$RETIRE_BLOCKED_DIR/${path#./}"
+  fi
   if [[ "$path" == "$RETIRE_BLOCKED_DIR" ]]; then
     "$RETIRE_REAL_RM" -f -- "$path/SKILL.md"
     if [[ "$RETIRE_RMDIR_LATE" == true ]]; then
@@ -797,7 +801,19 @@ for path in "$@"; do
 done
 exec "$RETIRE_REAL_RMDIR" "$@"
 SHIM
-chmod +x "$RETIRE_BIN/rm" "$RETIRE_BIN/rmdir"
+cat >"$RETIRE_BIN/mv" <<'SHIM'
+#!/usr/bin/env bash
+destination="${!#}"
+if [[ "$destination" == ./ && "$(pwd -P)" == "$RETIRE_BLOCKED_DIR" ]]; then
+  destination="$RETIRE_BLOCKED_DIR/"
+fi
+if [[ "$RETIRE_RESTORE_DENIED" == true && "$destination" == "$RETIRE_BLOCKED_DIR/" ]]; then
+  printf 'fixture: refusing to restore the ownership marker\n' >&2
+  exit 1
+fi
+exec "$RETIRE_REAL_MV" "$@"
+SHIM
+chmod +x "$RETIRE_BIN/rm" "$RETIRE_BIN/rmdir" "$RETIRE_BIN/mv"
 for writer in resync reinstall; do
     FTGT="$SCRATCH/retirement-refusal-$writer"
     new_target "$FTGT"
@@ -882,6 +898,38 @@ for writer in resync reinstall; do
         else no "reinstall succeeds after final removal is possible"; fi
     fi
     if [[ -e "$RETIRE_BLOCKED_DIR" ]]; then no "$writer retry removes the retired directory"; else ok "$writer retry removes the retired directory"; fi
+
+    # An unsuccessful marker restore leaves a durable, target-bound refusal.
+    mkdir -p "$RETIRE_BLOCKED_DIR"
+    printf -- '---\nname: repo-remote\n---\n%s\n' "$CODEX_MARK" >"$RETIRE_BLOCKED_DIR/SKILL.md"
+    MARKER_BEFORE="$(cksum <"$RETIRE_BLOCKED_DIR/SKILL.md")"
+    pending="$FTGT/.agents/skills/.repo-skills-retirement.repo-remote"
+    if [[ "$writer" == resync ]]; then
+        RETIRE_RESTORE_DENIED=true RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" run_resync "$FTGT"
+        assert_eq "failed marker restore makes resync exit 1" "1" "$RS_RC"
+    else
+        INSTALL_RC=0
+        RETIRE_RESTORE_DENIED=true RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" do_install "$RSRC" "$FTGT" || INSTALL_RC=$?
+        assert_eq "failed marker restore makes reinstall exit 1" "1" "$INSTALL_RC"
+    fi
+    rm -f "$RETIRE_BLOCKED_DIR/.late"
+    assert_eq "$writer retained the exact pending target" '.agents/skills/repo-remote' "$(cat "$pending/target" 2>/dev/null)"
+    if [[ -f "$pending/SKILL.md" ]]; then
+        assert_eq "$writer retained the exact pending marker" "$MARKER_BEFORE" "$(cksum <"$pending/SKILL.md")"
+    else
+        no "$writer retained the exact pending marker"
+    fi
+    if [[ "$writer" == resync ]]; then
+        run_resync "$FTGT"
+        assert_eq "resync explicitly fails while recovery is pending" "1" "$RS_RC"
+        assert_contains "resync identifies the pending retirement" "$RS_OUT" 'Pending retirement for .agents/skills/repo-remote'
+    else
+        INSTALL_RC=0
+        INSTALL_OUT="$(cd "$FTGT" && HOME="$FAKE_HOME" bash "$RSRC/install.sh" -y "$FTGT" 2>&1)" || INSTALL_RC=$?
+        assert_eq "reinstall explicitly fails while recovery is pending" "1" "$INSTALL_RC"
+        assert_contains "reinstall identifies the pending retirement" "$INSTALL_OUT" 'Pending retirement for .agents/skills/repo-remote'
+    fi
+    assert_file "$writer leaves the pending marker available for recovery" "$pending/SKILL.md"
 done
 
 # The #676 Codex migrations also see these paths. Their directory cleanup
