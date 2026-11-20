@@ -587,7 +587,7 @@ echo "1.0.0" >"$CSRC/VERSION"
 do_install "$CSRC" "$CTGT"
 
 assert_contains "a fresh install's CLAUDE.md block reports the install version" \
-    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/rjwalters/repo) v1.0.0 installed"
+    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/2AMLogic/repo) v1.0.0 installed"
 
 run_resync "$CTGT" --dry-run
 assert_eq "dry-run on a freshly-installed CLAUDE.md block is in sync" "0" "$RS_RC"
@@ -605,7 +605,7 @@ run_resync "$CTGT"
 assert_eq "apply after a version bump exits 0" "0" "$RS_RC"
 assert_contains "apply reports CLAUDE.md as synced" "$RS_OUT" "synced    CLAUDE.md"
 assert_contains "CLAUDE.md's block now reads the new version" \
-    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/rjwalters/repo) v2.0.0 installed"
+    "$(cat "$CTGT/CLAUDE.md")" "Repo Skills](https://github.com/2AMLogic/repo) v2.0.0 installed"
 assert_not_contains "a resync from N to M leaves no vN text in CLAUDE.md" \
     "$(cat "$CTGT/CLAUDE.md")" "v1.0.0"
 
@@ -663,6 +663,26 @@ echo ""
 echo "-- uninstall.sh still owns removal --"
 UN="$(cat "$REPO_ROOT/uninstall.sh")"
 assert_contains "uninstall.sh enumerates the resync script" "$UN" "resync-installed.sh"
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "-- linked worktree resolves the source from the primary's sidecar --"
+WSRC="$SCRATCH/wt-src"; WPRIM="$SCRATCH/wt-primary"; WLINK="$SCRATCH/wt-linked"
+new_source "$WSRC"
+new_target "$WPRIM"
+do_install "$WSRC" "$WPRIM"
+git -C "$WPRIM" add -f .claude >/dev/null 2>&1
+git -C "$WPRIM" -c user.email=t@example.com -c user.name=Test commit -qm "install" >/dev/null 2>&1
+git -C "$WPRIM" worktree add -q "$WLINK" -b wt-branch >/dev/null 2>&1
+rm -f "$WLINK/.claude/skills/repo/.install-local.json"
+run_resync "$WLINK" --dry-run
+assert_eq "linked worktree with no sidecar and no --source exits 0" "0" "$RS_RC"
+assert_contains "origin names the primary checkout's sidecar" "$RS_OUT" "sidecar in primary checkout"
+
+rm -f "$WPRIM/.claude/skills/repo/.install-local.json"
+run_resync "$WLINK" --dry-run
+assert_eq "primary without a sidecar still errors" "1" "$RS_RC"
+assert_contains "error mentions the primary-checkout lookup" "$RS_OUT" "primary checkout"
 
 # ---------------------------------------------------------------------------
 echo ""
@@ -742,6 +762,38 @@ do_install "$RSRC" "$ITGT"
 for f in .claude/commands/repo/remote.md .claude/skills/repo/scripts/repo-remote.sh \
          .agents/skills/repo/references/remote.md .agents/skills/repo-remote; do
     if [[ -e "$ITGT/$f" ]]; then no "reinstall removed $f"; else ok "reinstall removed $f"; fi
+done
+
+# The #676 Codex migrations also see these paths. Their directory cleanup
+# must preserve the two repo-owned files while still migrating a sibling.
+PTGT="$SCRATCH/ret-codex-pins"; new_target "$PTGT"
+do_install "$RSRC" "$PTGT"
+PIN_REF=.agents/skills/repo/references/remote.md
+PIN_SKILL=.agents/skills/repo-remote/SKILL.md
+SIBLING=.agents/skills/repo/references/tidy.md
+for writer in resync reinstall; do
+    seed_retired "$PTGT"
+    echo legacy >"$PTGT/$SIBLING"
+    printf '%s\n' "$PIN_REF" "$PIN_SKILL" >"$PTGT/.claude/skills/repo/resync-ignore"
+    if [[ "$writer" == resync ]]; then
+        run_resync "$PTGT" --dry-run
+        assert_eq "Codex pins: dry-run sees unpinned retirement drift" "2" "$RS_RC"
+        assert_file "Codex pins: dry-run preserves pinned reference" "$PTGT/$PIN_REF"
+        assert_file "Codex pins: dry-run preserves pinned skill" "$PTGT/$PIN_SKILL"
+        assert_file "Codex pins: dry-run preserves unpinned sibling" "$PTGT/$SIBLING"
+        run_resync "$PTGT"
+        assert_eq "Codex pins: resync exits 0" "0" "$RS_RC"
+        assert_contains "Codex pins: resync reports both pins" "$RS_OUT" "2 pinned"
+    else
+        do_install "$RSRC" "$PTGT"
+    fi
+    assert_file "$writer preserves pinned retired Codex reference" "$PTGT/$PIN_REF"
+    assert_file "$writer preserves pinned retired Codex skill" "$PTGT/$PIN_SKILL"
+    if [[ -e "$PTGT/$SIBLING" ]]; then
+        no "$writer still migrates the unpinned legacy reference"
+    else
+        ok "$writer still migrates the unpinned legacy reference"
+    fi
 done
 
 # --dev install: a retired symlink goes, the file it points at stays.

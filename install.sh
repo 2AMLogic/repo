@@ -297,6 +297,14 @@ saved_guard_policy() {  # -> the saved guardHook string, or empty
   fi
 }
 
+# jq predicate (repo#798): true when a hook command IS our guard entry — the
+# bare command, or the same command wrapped in ONE pair of double quotes (the
+# quoted form some consumers' settings.json carries). Exact match only, never a
+# substring, so a foreign guard that merely mentions our path is not ours.
+# Prepended to every jq program that needs it; used by existing_guard_wired,
+# merge_settings_hook and unwire_own_guard so they cannot drift apart.
+GUARD_IS_OURS_JQ='def is_ours($c): ((.command // "") | (. == $c or . == ("\"" + $c + "\""))); '
+
 # existing_guard_wired <settings-file> <our-cmd>
 # True (0) when a destructive-command guard matching guard-destructive.sh is
 # ALREADY wired under a PreToolUse/Bash hook in <settings-file>, under some
@@ -310,17 +318,17 @@ saved_guard_policy() {  # -> the saved guardHook string, or empty
 # A single implementation is what makes that guarantee possible. (Defined here,
 # ahead of the --dry-run enumeration, so the preview can use it too.)
 #
-# The `.command != $c` filter matters on a REPEAT install: by the second run
+# The `is_ours($c) | not` filter matters on a REPEAT install: by the second run
 # our own hook IS already wired, and without excluding it here every reinstall
 # would misdetect its own prior wiring as "another" guard and quietly stop
 # copying/maintaining its own file.
 existing_guard_wired() {
   local settings="$1" cmd="$2"
   [[ -f "$settings" ]] || return 1
-  jq -e --arg c "$cmd" '
+  jq -e --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
         (.hooks.PreToolUse // []) | any(.[]?;
           (.matcher == "Bash") and ((.hooks // []) | any(.[]?;
-            ((.command // "") | test("guard-destructive\\.sh")) and (.command != $c))))
+            ((.command // "") | test("guard-destructive\\.sh")) and (is_ours($c) | not))))
       ' "$settings" >/dev/null 2>&1
 }
 
@@ -392,9 +400,7 @@ if [[ "$DRY_RUN" == true ]]; then
     echo "  $TARGET/$CODEX_SKILL_REL/SKILL.md (Codex skill: canonical body, Codex-native frontmatter)"
     echo "  $TARGET/$CODEX_SKILL_REL/install-metadata.json"
     echo "  $TARGET/$CODEX_SKILLS_ROOT_REL/$CODEX_COMMAND_SLUG_PREFIX<verb>/SKILL.md (one Codex skill per command)"
-    while IFS= read -r cmd; do
-      echo "  $TARGET/$CODEX_REFERENCES_REL/$cmd.md"
-    done <<<"$COMMANDS"
+    [[ -d "$TARGET/$CODEX_REFERENCES_REL" ]] && echo "  (migration: removes $TARGET/$CODEX_REFERENCES_REL/ — now redundant with the repo-<verb> skills)"
   fi
   if [[ "$DEV" == true ]]; then
     echo "  $TARGET/.gitignore (.claude/ entry$([[ "$CODEX" == true ]] && ! codex_target_is_foreign && echo " + $CODEX_SKILL_REL/ entry"); CLAUDE.md skipped in dev mode)"
@@ -496,9 +502,9 @@ merge_settings_hook() {
   fi
 
   # Idempotent re-install: our exact command is already present.
-  if jq -e --arg c "$cmd" '
+  if jq -e --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
         (.hooks.PreToolUse // []) | any(.[]?;
-          (.matcher == "Bash") and ((.hooks // []) | any(.[]?; .command == $c)))
+          (.matcher == "Bash") and ((.hooks // []) | any(.[]?; is_ours($c))))
       ' "$settings" >/dev/null 2>&1; then
     info "PreToolUse guard already wired in .claude/settings.json (no change)"
     return
@@ -535,6 +541,46 @@ merge_settings_hook() {
   fi
 }
 
+# Deferral heal (repo#733). When another guard-destructive.sh is wired and we
+# defer to it (GUARD_HOOK_INSTALLED=false), our OWN entry from an earlier
+# install must not stay behind: it would keep running a copy this run no longer
+# refreshes, and doubles the guard. Remove only our $HOOK_CMD entry, bare or double-quoted (repo#798) (other
+# hooks sharing the Bash matcher are kept; a matcher block is dropped only if
+# our removal emptied it) and delete the script/symlink, so the recorded
+# guardHookInstalled:false matches the tree. No-op when neither is present, so
+# a second run changes nothing. (The --no-guard branch deliberately does NOT
+# call this: opt-out leftovers stay an explicit operator action, repo#557.)
+unwire_own_guard() {
+  local settings="$SETTINGS_JSON" cmd="$HOOK_CMD" script="$TARGET/$HOOK_INSTALL_REL" tmp
+  if [[ -f "$settings" ]]; then
+    if ! jq -e . "$settings" >/dev/null 2>&1; then
+      warning "Skipping guard unwiring: $settings is not valid JSON (remove the Repo Skills guard entry by hand)"
+    elif jq -e --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
+          (.hooks.PreToolUse // []) | any(.[]?;
+            (.matcher == "Bash") and ((.hooks // []) | any(.[]?; is_ours($c))))
+        ' "$settings" >/dev/null 2>&1; then
+      tmp="$(mktemp)"
+      if jq --arg c "$cmd" "$GUARD_IS_OURS_JQ"'
+            .hooks.PreToolUse |= [.[]
+              | if (.matcher == "Bash") and ((.hooks // []) | any(.[]?; is_ours($c)))
+                then (.hooks |= map(select(is_ours($c) | not)))
+                     | if (.hooks | length) == 0 then empty else . end
+                else . end]
+          ' "$settings" >"$tmp"; then
+        mv "$tmp" "$settings"
+        success "Removed duplicate Repo Skills guard entry from .claude/settings.json (another guard is wired)"
+      else
+        rm -f "$tmp"
+        warning "Failed to update $settings — left unchanged"
+      fi
+    fi
+  fi
+  if [[ -e "$script" || -L "$script" ]]; then
+    rm -f "$script"
+    info "Removed stale .claude/skills/repo/hooks/guard-destructive.sh (another guard is wired)"
+  fi
+}
+
 # Idempotently wire session-start-handoff.sh into the target's
 # .claude/settings.json under hooks.SessionStart, once per managed source
 # matcher. Same discipline as merge_settings_hook above: refuse to touch
@@ -544,6 +590,9 @@ merge_settings_hook() {
 # or another tool's — are appended to, never replaced.
 merge_settings_sessionstart_hook() {
   local settings="$SETTINGS_JSON" cmd="$SESSIONSTART_HOOK_CMD" tmp sources_json
+  # Absolute spelling of the same script (a harness or agent may have expanded
+  # ${CLAUDE_PROJECT_DIR}); equivalent to $cmd, so never wired twice or "foreign".
+  local abs="$TARGET/$SESSIONSTART_HOOK_INSTALL_REL"
   sources_json="$(jq -nc '$ARGS.positional' --args "${SESSIONSTART_SOURCES[@]}")"
   [[ -f "$settings" ]] || echo '{}' >"$settings"
 
@@ -554,10 +603,11 @@ merge_settings_sessionstart_hook() {
 
   # Idempotent re-install: our exact command is already present under EVERY
   # source matcher we manage (a partial wiring falls through and is completed).
-  if jq -e --arg c "$cmd" --argjson sources "$sources_json" '
+  # is_ours accepts the bare and the double-quoted form of BOTH spellings.
+  if jq -e --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" "$GUARD_IS_OURS_JQ"'
         (.hooks.SessionStart // []) as $ss |
         ($sources | all(. as $m | $ss | any(.[]?;
-          (.matcher == $m) and ((.hooks // []) | any(.[]?; .command == $c)))))
+          (.matcher == $m) and ((.hooks // []) | any(.[]?; is_ours($c) or is_ours($abs))))))
       ' "$settings" >/dev/null 2>&1; then
     info "SessionStart handoff hook already wired in .claude/settings.json (no change)"
     return
@@ -565,23 +615,23 @@ merge_settings_sessionstart_hook() {
 
   # Coexistence: a DIFFERENT session-start-handoff.sh is already wired (e.g. a
   # copy living at another path). Defer rather than surfacing the note twice.
-  if jq -e --arg c "$cmd" '
+  if jq -e --arg c "$cmd" --arg abs "$abs" "$GUARD_IS_OURS_JQ"'
         (.hooks.SessionStart // []) | any(.[]?;
           (.hooks // []) | any(.[]?;
-            ((.command // "") | test("session-start-handoff\\.sh")) and (.command != $c)))
+            ((.command // "") | test("session-start-handoff\\.sh")) and ((is_ours($c) or is_ours($abs)) | not)))
       ' "$settings" >/dev/null 2>&1; then
     info "A handoff SessionStart hook is already wired in .claude/settings.json — deferring to it (not adding a duplicate)"
     return
   fi
 
   tmp="$(mktemp)"
-  if jq --arg c "$cmd" --argjson sources "$sources_json" '
+  if jq --arg c "$cmd" --arg abs "$abs" --argjson sources "$sources_json" "$GUARD_IS_OURS_JQ"'
         .hooks //= {} |
         .hooks.SessionStart //= [] |
         reduce ($sources[]) as $m (.;
           if (.hooks.SessionStart | any(.[]?; .matcher == $m))
           then .hooks.SessionStart |= map(
-            if (.matcher == $m) and (((.hooks // []) | any(.[]?; .command == $c)) | not)
+            if (.matcher == $m) and (((.hooks // []) | any(.[]?; is_ours($c) or is_ours($abs))) | not)
             then .hooks = ((.hooks // []) + [{type: "command", command: $c}])
             else . end)
           else .hooks.SessionStart += [{matcher: $m, hooks: [{type: "command", command: $c}]}]
@@ -769,8 +819,8 @@ elif [[ "$GUARD_POLICY" == disabled ]]; then
     warning "entry). The opt-out does not remove it; delete it by hand (or run uninstall.sh) if wanted."
   fi
 else
-  info "Another destructive-command guard is already wired in .claude/settings.json — skipping the guard-destructive.sh copy (nothing would run it)"
-  merge_settings_hook
+  info "Another destructive-command guard is already wired in .claude/settings.json — skipping the guard-destructive.sh copy (nothing would run it) — deferring to it"
+  unwire_own_guard
 fi
 
 # 3c. SessionStart handoff hook + settings.json wiring. Same colocation and
@@ -823,27 +873,28 @@ success_installed ".claude/skills/repo/scripts/resync-installed.sh"
 # 3e-2. Retire paths earlier versions installed under fixed names and this one no
 # longer ships (lib/retired-files.sh, repo#765). Runs on every install so a
 # reinstall — not only a resync — cleans the consumer.
+_retired_skill="$RETIRED_CODEX_SKILL_DIR/SKILL.md"
+if codex_skill_is_managed "$TARGET/$_retired_skill" && resync_ignore_is_pinned "$_retired_skill"; then
+  info "Pinned (repo-owned, left alone): $_retired_skill"
+fi
 while IFS=$'\t' read -r _v _p; do
   [[ -n "$_p" ]] && success "Removed retired $_p"
 done < <(retire_installed_files "$TARGET" false)
 
 # 3f. Codex-side skill surface (.agents/skills/repo/). Codex CLI discovers
 # skills by scanning `.agents/skills` from the cwd up to the repo root, in the
-# open Agent Skills format — a directory holding SKILL.md plus optional
-# references/ — so this is a repo-scoped install that needs no config file and
+# open Agent Skills format — a directory holding SKILL.md — so this is a repo-scoped install that needs no config file and
 # no write outside the target. lib/codex-skill.sh's header records how that
 # format was confirmed and which single adaptation it forces (the `name` must be
 # a lowercase slug matching its directory, which "Repo Skills" is not).
 #
-# The BODY is the canonical skills/repo/SKILL.md, and the references/ files are
-# the same commands/repo/*.md Claude Code registers as /repo:<verb> — one
-# procedure body per workflow, packaged for a second runtime rather than
-# rewritten for it.
+# The BODY is the canonical skills/repo/SKILL.md (a thin router), and each
+# repo-<verb> skill is rendered from the same commands/repo/*.md Claude Code
+# registers as /repo:<verb> — one procedure body per workflow, packaged for a
+# second runtime rather than rewritten for it.
 #
 # SKILL.md is generated (never symlinked) even under --dev, because the whole
 # point of the Codex copy is frontmatter a symlink to the source would not have.
-# The references/ files follow the normal install_file rules, so --dev still
-# gives live per-command edits.
 # A legacy `.agents/` mirror of the .claude/ tree (an older/other writer) is warned
 # about, never migrated or deleted — the layout is unverifiable, so it is the
 # operator's call.
@@ -867,7 +918,7 @@ elif codex_target_is_foreign; then
   warning "it untouched — the Claude Code surface installed normally. Move or rename that"
   warning "skill and re-run to install the Codex surface too, or pass --no-codex to silence this."
 else
-  mkdir -p "$TARGET/$CODEX_REFERENCES_REL"
+  mkdir -p "$TARGET/$CODEX_SKILL_REL"
   # Not an install_file() call (it is generated, never symlinked), so the C10 pin
   # has to be consulted explicitly here — a pin honored on the Claude surface but
   # not the Codex one would be a pin only half the time.
@@ -885,18 +936,17 @@ else
     fi
   fi
 
-  CODEX_REF_WRITTEN=0
-  CODEX_REF_PINNED=0
-  while IFS= read -r cmd; do
-    install_file "$SOURCE_ROOT/commands/repo/$cmd.md" \
-      "$TARGET/$CODEX_REFERENCES_REL/$cmd.md" "$CODEX_REFERENCES_REL/$cmd.md"
-    if [[ "$INSTALL_FILE_SKIPPED" == true ]]; then
-      CODEX_REF_PINNED=$((CODEX_REF_PINNED + 1))
-    else
-      CODEX_REF_WRITTEN=$((CODEX_REF_WRITTEN + 1))
-    fi
-  done <<<"$COMMANDS"
-  success "Installed $CODEX_REF_WRITTEN command procedures into $CODEX_REFERENCES_REL/$([[ "$CODEX_REF_PINNED" -gt 0 ]] && echo " ($CODEX_REF_PINNED pinned as repo-owned, left alone)")"
+  # Migration (repo#676): the umbrella no longer carries references/. Only
+  # removed once SKILL.md is proven ours (codex_target_is_foreign was false above).
+  _keep_reference=""
+  if [[ -e "$TARGET/$RETIRED_CODEX_REFERENCE" || -L "$TARGET/$RETIRED_CODEX_REFERENCE" ]] &&
+     resync_ignore_is_pinned "$RETIRED_CODEX_REFERENCE"; then
+    _keep_reference="${RETIRED_CODEX_REFERENCE##*/}"
+    info "Pinned (repo-owned, left alone): $RETIRED_CODEX_REFERENCE"
+  fi
+  while IFS= read -r _legacy_reference; do
+    success "Removed legacy $_legacy_reference (the command procedures are now the repo-<verb> skills)"
+  done < <(codex_migrate_references "$TARGET" "$_keep_reference")
   CODEX_INSTALLED=true
 
   # Per-command skills (repo#676): each selected command is also its own
@@ -1024,8 +1074,8 @@ if [[ "$DEV" == true ]]; then
     { [[ -f "$GITIGNORE" && -s "$GITIGNORE" ]] && echo ""; echo "# Repo Skills dev-mode symlinks (machine-local, do not commit)"; echo ".claude/"; } >>"$GITIGNORE"
     success "Added .claude/ to .gitignore"
   fi
-  # The Codex surface is half symlinks too (references/), so it is machine-local
-  # in dev mode for the same reason and gets the same treatment. Scoped to this
+  # The Codex surface is machine-local in dev mode too (it records the source
+  # clone), so it gets the same treatment. Scoped to this
   # package's own directory rather than all of .agents/skills/, which other tools
   # and the consumer share.
   #
@@ -1120,7 +1170,7 @@ fi
 BLOCK_FILE="$(mktemp)"
 {
   echo "$MARKER_BEGIN"
-  echo "This repository has [Repo Skills](https://github.com/rjwalters/repo) v$VERSION installed —"
+  echo "This repository has [Repo Skills](https://github.com/2AMLogic/repo) v$VERSION installed —"
   echo "general repository hygiene and environment commands invoked as \`/repo:<command>\`. Run"
   echo "\`/repo:help\` for the command list, or see \`.claude/skills/repo/SKILL.md\` for the full"
   echo "guide. Hygiene commands apply safe, reversible fixes by default and report each"

@@ -1,0 +1,115 @@
+# Roadmap
+
+Repo Skills is a toolbox of general repository-hygiene and environment commands
+(`/repo:<verb>` in Claude Code, `$repo-<verb>` in Codex CLI) plus the installer,
+guard hook and installer contract that deliver them into consumer repos.
+
+Status as of 2026-11-19, `main` @ `98c89a6`, `VERSION` 0.26.11 (tag `v0.26.11`).
+
+The label-by-label queue is [`WORK_PLAN.md`](../WORK_PLAN.md) and the merge
+history is [`WORK_LOG.md`](../WORK_LOG.md); both are generated, not repeated here.
+
+## Where it stands
+
+Done and evidenced on `main`:
+
+- **24 commands** in `commands/repo/*.md`, each listed in the README Skills
+  table and in `skills/repo/SKILL.md`; the tables are checked against disk by
+  `commands/repo/tests/test-skill-commands-table.sh` and
+  `test-readme-layout-block.sh`.
+- **Installer contract C1-C10** (`INSTALLER-CONTRACT.md`) is normative and this
+  repo's own column of its conformance table is verified on every test run
+  (`commands/repo/tests/test-installer-contract.sh`); `install.sh` and
+  `uninstall.sh` match bare and double-quoted guard-hook entries in consumers'
+  `settings.json` (#798, PR #800).
+  The 2026-11-14 checks covered every anvil and squad cell and loom's C1, C2,
+  C4 and C8. The final update for #804 on 2026-11-19 reconfirmed squad's C4
+  and recorded that loom's C9 had never been observed.
+- **Codex packaging.** Every command is its own native skill and `$repo` is a
+  thin router with no `references/` copies (#676; PR #728 merged).
+- **Destructive-command guard** (`hooks/repo/guard-destructive.sh`): worktree
+  write-confinement covers `mkdir`/`touch`/`ln`/`install` (#693),
+  `guards.rmAllowDirs` (#747, PR #751), process substitution no longer misread
+  as a write (#785, PR #786). The owner review of an external evidence set is
+  recorded in [`guard-confinement-review.md`](guard-confinement-review.md).
+- **Dependabot-first organization policy.** All five phases of #638
+  (#652-#656) are closed; `policies/default.json` is the canonical source that
+  `/repo:org-policy` reads, and a 403 on the policy repository is named as
+  access refused rather than surfacing as a raw error (#803, PR #808).
+- **Resync and handoff fixes in 0.26.1:** resync from a linked worktree (#793,
+  PR #794), handoff preflight hook spellings (#789, PR #791), staging-mode
+  guidance in `/repo:update-tools` (#792, PR #795).
+- **Release mechanics.** `scripts/version.sh` is the single source of
+  `VERSION`; tags are cut on each bump (#669); CI runs the
+  installed-surface version-bump gate as a visible, non-required check.
+- **Tests.** `pnpm test` runs `hooks/repo/tests/run.sh` on Linux and fails on
+  any undelegated suite (#774, PR #776); the full suite also runs on macOS
+  with BSD awk/sed and bash 3.2 — the `test-macos` job invokes
+  `/bin/bash hooks/repo/tests/run.sh` on `macos-latest` (#805, PR #807).
+
+Known drift: `CHANGELOG.md` has no version heading newer than `0.16.2`;
+everything since sits under `Unreleased` (#769, fix in PR #770, held).
+
+## Now
+
+Can start today. Every merge in this repo currently needs a human (see
+"Blocked and waiting"), so "start" means build and review, not land.
+
+1. **Bring PR #766 back to mergeable** (#765, remove `/repo:remote`). The PR
+   conflicts with `main` and carries `loom:changes-requested` +
+   `loom:merge-conflict`. Done when: #766 merges cleanly against `main`,
+   `pnpm test` passes, and install/resync remove a retired command's installed
+   files as #765 requires.
+2. **Check the six loom cells that require a full install.** The last
+   observations for C3 and C5-C7 are from 2026-08-06 (repo#156), and C10 is
+   from 2026-09-29 (repo#511). C9 still needs its first observation. On a
+   host that permits a full loom install, run the `INSTALLER-CONTRACT.md`
+   spot-checks for these six cells and record the results and observation date
+   in the table. Tracked as #816.
+
+## Next
+
+- **First release with a real CHANGELOG section**, once PR #770 merges. Done
+  when: `/repo:release` Phase 1.5's version-header check passes on `main` and
+  the next bump cuts its own dated heading.
+
+## Later
+
+- **Should the test check become required?** #73 decided against a required
+  status check for a solo-operator repo and recorded that any future enabler
+  must use classic branch protection, not a ruleset (comment above the `test`
+  job in `.github/workflows/ci.yml`). Question first: have collaborators
+  joined?
+- **A linter.** `package.json`'s `lint` script is a placeholder. Question
+  first: which shell linter and which baseline of existing findings is
+  acceptable, given the suite's bash 3.2 portability constraint?
+
+## Blocked and waiting
+
+- **Merging.** #773: role commands under `.claude/` are git-ignored, so
+  automated merge steps cannot run here; it carries a ranked decision block
+  (commit the role commands, install them on provision, or merge by hand)
+  awaiting the operator. Until it is ruled on, every approved PR waits for a
+  human merge.
+- **PR #770** (CHANGELOG headings, #769): approved; held because it changes
+  `.github/workflows/ci.yml`.
+- **#676**: code complete; the remaining criterion is a live Codex CLI session
+  selecting and invoking representative `$repo-<verb>` skills.
+- **#638**: code complete; open until the owner-side Mend Renovate App removal
+  is recorded.
+- **#478**: a live-verification checklist that needs admin on a real GitHub
+  organization; no code change proposed.
+- **#565**: its remaining step is an attended VM check of `/repo:remote`,
+  the command #765 removes. #424 is an auto-maintained digest, not work.
+
+Open issues with buildable work and no PR: none. Item 2 above (#816) is the
+only new work a builder can pick up.
+
+## Not planned
+
+- **A canonical remote-execution tool in this repo.** #681 and #680 were
+  closed as not planned; `/repo:remote` itself is being removed (#765).
+  [`remote-exec-provenance.md`](remote-exec-provenance.md) remains as a record.
+- **Org-specific checks in the commands.** The "Adding a skill" rule in the
+  README stands: no hardcoded hostnames, project names or infrastructure
+  paths; repo-local behaviour belongs in the consumer repo.

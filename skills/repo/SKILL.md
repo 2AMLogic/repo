@@ -36,7 +36,7 @@ costs.
 | [[update-tools]] | Check installed tool packages (Loom, Anvil, …) against their sources and offer updates |
 | [[deps]] | Third-party dependency currency — reconcile organization policy, Dependabot-first setup with cooldown (Renovate opt-in), and bot PRs; report-only under `--check` |
 | [[optimize-ci]] | Audit GitHub Actions for wasted CI minutes — change-relevance path filtering (required-check safe), cache keys, superseded runs; ranked by measured savings, report-only unless `--apply`. Its deterministic half is `scripts/repo/repo-optimize-ci.py` (installed to `.claude/skills/repo/scripts/`) |
-| [[org-policy]] | Preview or deploy canonical rjwalters/repo preferences to the client's GitHub owner/.github repository through a policy PR |
+| [[org-policy]] | Preview or deploy canonical 2AMLogic/repo preferences to the client's GitHub owner/.github repository through a policy PR |
 | [[decide]] | Put operator decisions to the operator as ranked options — best to worst, each with why — so they can answer with a number |
 | [[followups]] | Capture follow-on work from this session and file it as issues — here or in upstream tool repos, always confirmed first |
 | [[branches]] | Branch & worktree hygiene — merged PRs, orphaned branches, stale worktrees |
@@ -194,6 +194,7 @@ All toggles resolve: `REPO_*` env var (wins) → legacy `LOOM_*` env var →
 | Cloud CLI (mutating-verb asks + `az`/`gcloud` delete denies) | `REPO_GUARD_CLOUD` | `LOOM_GUARD_CLOUD` | `guards.cloudCli` | on |
 | Reversible-GitHub asks (`gh pr/issue close`, `gh label delete`) | `REPO_GUARD_REVERSIBLE_GH` | `LOOM_GUARD_REVERSIBLE_GH` | `guards.reversibleGh` | **off** (opt-in) |
 | rm scope (`repo` denies outside-repo/temp targets; `off`/`permissive` restores legacy) | `REPO_RM_SCOPE` | `LOOM_RM_SCOPE` | `guards.rmScope` | `repo` |
+| rm allowed dirs outside the repo (extra directories where `rm` stays allowed under `rmScope=repo`; absolute, lexical match, no symlink resolution; `/`, `$HOME`, single-segment, `..`/`$` entries ignored) | — (config-only) | — | `guards.rmAllowDirs` (array) | `[]` |
 | Force-op branch scope (`all` / `protected` / `off`) | `REPO_FORCE_SCOPE` | `LOOM_FORCE_SCOPE` | `guards.forceScope` | `all` |
 | tmpfs build/scratch dir (deny a build dir that resolves onto a RAM-backed mount) | `REPO_GUARD_TMPFS_SCRATCH` | `LOOM_GUARD_TMPFS_SCRATCH` | `guards.tmpfsScratch` | on |
 | Decision telemetry log | `REPO_GUARD_DECISION_LOG` (path: `REPO_GUARD_DECISION_LOG_FILE`) | `LOOM_GUARD_DECISION_LOG` (`…_FILE`) | `guards.decisionLog` | **off** (opt-in) |
@@ -374,7 +375,7 @@ one-line summary; `--source` / `--target` override the resolved paths.
 Hook wiring in `.claude/settings.json`, the `CLAUDE.md` block, and `.gitignore`
 belong to `install.sh`, not to a refresh — re-run the installer if those need
 updating. This split is requirement **C7** of the normative
-[tool-package installer contract](https://github.com/rjwalters/repo/blob/main/INSTALLER-CONTRACT.md),
+[tool-package installer contract](https://github.com/2AMLogic/repo/blob/main/INSTALLER-CONTRACT.md),
 which [[update-tools]] follows for every tool in the family.
 
 ### Repo-owned files (`.claude/skills/repo/resync-ignore`)
@@ -388,7 +389,7 @@ repo-owned by listing it — one target-relative path per line — in
 ```
 # keep our allowlist-drift wiring in /repo:scrub
 .claude/commands/repo/scrub.md
-.agents/skills/repo/references/scrub.md
+.agents/skills/repo-scrub/SKILL.md
 # a whole subtree of local helper forks (trailing slash)
 .claude/skills/repo/scripts/
 ```

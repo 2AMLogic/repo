@@ -142,7 +142,7 @@ tail_from "$T1/CLAUDE.md" '<!-- BEGIN LOOM ORCHESTRATION -->' > "$SCRATCH/actual
 assert_bytes     "adjacent-after: Loom block + tail byte-identical" \
                  "$SCRATCH/actual-loom-tail" "$SCRATCH/expected-loom-tail"
 assert_contains  "adjacent-after: content before the block survives" "$BODY1" "Some intro content."
-assert_contains  "adjacent-after: block was refreshed"            "$BODY1" "Repo Skills](https://github.com/rjwalters/repo) v$VERSION"
+assert_contains  "adjacent-after: block was refreshed"            "$BODY1" "Repo Skills](https://github.com/2AMLogic/repo) v$VERSION"
 assert_not_contains "adjacent-after: stale block body is gone"    "$BODY1" "OLD repo skills content line 1"
 assert_contains  "adjacent-after: adjacency preserved verbatim"   "$BODY1" '<!-- END REPO-SKILLS --><!-- BEGIN LOOM ORCHESTRATION -->'
 assert_contains  "adjacent-after: reports the update"             "$OUT1" "Updated REPO-SKILLS block in CLAUDE.md"
@@ -183,7 +183,7 @@ assert_eq    "adjacent-before: install exits 0" "0" "$RC2"
 head_through "$T2/CLAUDE.md" '<!-- END LOOM ORCHESTRATION -->' > "$SCRATCH/actual-loom-head"
 assert_bytes "adjacent-before: preceding Loom block byte-identical" \
              "$SCRATCH/actual-loom-head" "$SCRATCH/expected-loom-head"
-assert_contains     "adjacent-before: block was refreshed"     "$BODY2" "Repo Skills](https://github.com/rjwalters/repo) v$VERSION"
+assert_contains     "adjacent-before: block was refreshed"     "$BODY2" "Repo Skills](https://github.com/2AMLogic/repo) v$VERSION"
 assert_not_contains "adjacent-before: stale block body is gone" "$BODY2" "OLD repo skills content line 1"
 assert_contains     "adjacent-before: trailing prose survives"  "$BODY2" "Trailing prose that must survive."
 assert_contains     "adjacent-before: reports the update"       "$OUT2"  "Updated REPO-SKILLS block in CLAUDE.md"
@@ -247,7 +247,7 @@ assert_bytes "non-adjacent: neighbour block byte-identical" \
              "$SCRATCH/actual-nonadjacent-tail" "$SCRATCH/expected-nonadjacent-tail"
 assert_contains     "non-adjacent: reports the update"      "$OUT4"  "Updated REPO-SKILLS block in CLAUDE.md"
 assert_contains     "non-adjacent: preamble survives"       "$BODY4" "Project notes."
-assert_contains     "non-adjacent: block was refreshed"     "$BODY4" "Repo Skills](https://github.com/rjwalters/repo) v$VERSION"
+assert_contains     "non-adjacent: block was refreshed"     "$BODY4" "Repo Skills](https://github.com/2AMLogic/repo) v$VERSION"
 assert_not_contains "non-adjacent: stale block body is gone" "$BODY4" "OLD repo skills content line 1"
 assert_contains     "non-adjacent: markers keep their own lines" "$BODY4" "$(printf '\n<!-- END REPO-SKILLS -->\n')"
 
@@ -494,7 +494,7 @@ else
     no "symlinked: CLAUDE.md is still a symlink to AGENTS.md" "$(ls -l "$TS/CLAUDE.md")"
 fi
 BODYS="$(slurp "$TS/AGENTS.md")"
-assert_contains "symlinked: the block was refreshed in the link target" "$BODYS" "Repo Skills](https://github.com/rjwalters/repo) v$VERSION"
+assert_contains "symlinked: the block was refreshed in the link target" "$BODYS" "Repo Skills](https://github.com/2AMLogic/repo) v$VERSION"
 assert_not_contains "symlinked: stale block body is gone from the target" "$BODYS" "OLD repo skills content"
 assert_contains "symlinked: content outside the block survives" "$BODYS" "Trailing prose."
 

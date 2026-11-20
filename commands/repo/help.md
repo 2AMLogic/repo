@@ -61,6 +61,7 @@ stashes, untracked files) always need an explicit opt-in.
 | /repo:decide | Blocked on the operator — put the decision as ranked options (best to worst, each with why) they can answer with a number |
 | /repo:handoff | Rolling the session (context full, CLI update) — preserve what only the session knows, then restart |
 | /repo:tidy  | Working tree cluttered with build artifacts and temp files |
+| /repo:browser | Set up or check browser automation (Browser Use CLI, agent skill, auth, cloud credits) — report-first, installs only on confirm |
 | /repo:sudo | One-time machine setup — grant passwordless sudo (validated drop-in) so an agent over SSH isn't blocked on password prompts |
 | /repo:release | Cut a release — pre-flight, semver, CHANGELOG, version bump, tag, GitHub Release. Supports per-project release policy via named phase-boundary seams in `.repo/release-policy.md` |
 
@@ -100,7 +101,7 @@ their frontmatter descriptions.
 - Full details per command: `/repo:help <command>` or the files in
   `.claude/commands/repo/`
 - Updating: `/repo:update-tools` for installed tool packages (source:
-  https://github.com/rjwalters/repo); `/repo:deps` for third-party dependencies
+  https://github.com/2AMLogic/repo); `/repo:deps` for third-party dependencies
   (organization policy + updater setup + bot-PR triage)
 
 ## Steps — with a command argument

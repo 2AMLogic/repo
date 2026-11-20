@@ -13,16 +13,18 @@
 # (C10) is theirs and is never removed.
 
 # /repo:remote was removed in repo#765.
+RETIRED_CODEX_REFERENCE=".agents/skills/repo/references/remote.md"
+RETIRED_CODEX_SKILL_DIR=".agents/skills/repo-remote"
 RETIRED_INSTALLED_FILES=(
   ".claude/commands/repo/remote.md"
   ".claude/skills/repo/scripts/repo-remote.sh"
-  ".agents/skills/repo/references/remote.md"
+  "$RETIRED_CODEX_REFERENCE"
 )
 
 # Per-command Codex skill directories. Removed only when marker-managed
 # (codex_skill_is_managed); an unmarked directory is someone else's.
 RETIRED_CODEX_SKILL_DIRS=(
-  ".agents/skills/repo-remote"
+  "$RETIRED_CODEX_SKILL_DIR"
 )
 
 # retire_installed_files <target> <dry-run:true|false>

@@ -3,39 +3,37 @@
 Prioritized roadmap generated from current GitHub label state, maintained automatically by the Guide triage agent. Regenerated whenever label state changes; do not hand-edit the generated region below.
 
 <!-- guide:plan-body:start -->
+_Generated: 2026-11-20T05:51:08Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
 
-- **#725**: fix(guard): accurate deny for opaque interpreter-heredoc writes (#722)
-- **#728**: feat(codex): make $repo a thin router and migrate away umbrella references/
-- **#734**: deps: define the evidence bar for PR review when the repo has no CI
-- **#736**: fix: unwire our own guard entry when install defers to another guard
+- **#770**: fix: cut CHANGELOG version headings on bump and gate on a matching heading
+- **#860**: fix: refresh managed CLAUDE.md link on first update from a pre-move install
 
 ## Very Important
 
 `loom:very-important` (one counts per workspace); every stage takes these first.
 
-_None._
+- **#765**: Remove /repo:remote (cloud dev-VM command) from Repo Skills
 
 ## Important
 
 `loom:important`; taken before unlabelled work.
 
-_None._
+- **#769**: CHANGELOG has no version headings since 0.16.2; tagged bumps never cut one
 
 ## Ready
 
-Human-approved issues ready for implementation (`loom:issue`).
+Human-approved issues (`loom:issue`) ready for implementation — excluding held (`loom:blocked`/`loom:operator`/`loom:frozen`), `loom:building`, and issues closed by an open `loom:pr` PR (listed under Approved).
 
-_None._
+- **#765**: Remove /repo:remote (cloud dev-VM command) from Repo Skills
 
 ## In Progress
 
 Issues currently being built (`loom:building`).
 
-- **#676**: Codex: register each repo command as a discoverable native skill
-- **#733**: install.sh: deferring to another guard leaves Repo Skills' own guard hook wired but unrefreshed, and records guardHookInstalled=false against a tree that still runs it
+- **#859**: Refresh the managed CLAUDE.md link on the first Repo Skills update after the owner move
 
 ## PRs Awaiting Review
 
@@ -47,20 +45,19 @@ _None._
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
-- **#725**: fix(guard): accurate deny for opaque interpreter-heredoc writes (#722)
-- **#728**: feat(codex): make $repo a thin router and migrate away umbrella references/
-- **#734**: deps: define the evidence bar for PR review when the repo has no CI
-- **#736**: fix: unwire our own guard entry when install defers to another guard
+- **#770**: fix: cut CHANGELOG version headings on bump and gate on a matching heading
+- **#860**: fix: refresh managed CLAUDE.md link on first update from a pre-move install
 
 ## Proposed
 
 Issues carrying `loom:curated`.
 
-- **#478**: Live-verify org-policy's absent/inaccessible heuristic against a real organization *(curated)*
-- **#638**: Repo Skills: make Dependabot (with cooldown) the default provider again; Renovate becomes opt-in (2am#4351) *(curated)*
-- **#676**: Codex: register each repo command as a discoverable native skill *(curated)*
-- **#722**: worktree-isolation guard blocks a stdin heredoc whose only writes are outside the repository, reporting a write to the repo root *(curated)*
-- **#733**: install.sh: deferring to another guard leaves Repo Skills' own guard hook wired but unrefreshed, and records guardHookInstalled=false against a tree that still runs it *(curated)*
+- **#478**: Live-verify org-policy's absent/inaccessible heuristic against a real organization *(curated)* *(held)*
+- **#565**: repo:remote: support short-lived or brokered GitHub credentials instead of a long-lived PAT on the VM *(curated)* *(held)*
+- **#638**: Repo Skills: make Dependabot (with cooldown) the default provider again; Renovate becomes opt-in (2am#4351) *(curated)* *(held)*
+- **#765**: Remove /repo:remote (cloud dev-VM command) from Repo Skills *(curated)*
+- **#769**: CHANGELOG has no version headings since 0.16.2; tagged bumps never cut one *(curated)*
+- **#859**: Refresh the managed CLAUDE.md link on the first Repo Skills update after the owner move *(curated)*
 
 ## Proposed (Architect / Hermit)
 
@@ -74,14 +71,14 @@ _None._
 
 | Bucket | Count |
 |------|-------|
-| Operator merge-risk holds | 4 |
-| Very important | 0 |
-| Important | 0 |
-| Ready (`loom:issue`) | 0 |
-| In Progress (`loom:building`) | 2 |
+| Operator merge-risk holds | 2 |
+| Very important | 1 |
+| Important | 1 |
+| Ready (`loom:issue`, net of holds/building/merge-pending) | 1 |
+| In Progress (`loom:building`) | 1 |
 | PRs awaiting review | 0 |
-| Approved PRs awaiting merge | 4 |
-| Curated | 5 |
+| Approved PRs awaiting merge | 2 |
+| Curated | 6 |
 | Architect / Hermit proposals | 0 |
 | Active epics | 0 |
 <!-- guide:plan-body:end -->

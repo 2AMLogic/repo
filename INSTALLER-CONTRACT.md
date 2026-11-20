@@ -1,6 +1,6 @@
 # Tool-Package Installer Contract
 
-**Status:** normative, v1 · **Owner:** [Repo Skills](https://github.com/rjwalters/repo) · **Applies to:** Loom, Anvil, Repo Skills, squad, kicad-tools, and any future tool package
+**Status:** normative, v1 · **Owner:** [Repo Skills](https://github.com/2AMLogic/repo) · **Applies to:** Loom, Anvil, Repo Skills, squad, kicad-tools, and any future tool package
 
 A **tool package** is a repo that *copies* agent-facing surfaces — skills,
 commands, agents, hooks, scripts — into a **consumer repo**. This document
@@ -149,6 +149,10 @@ as "source unknown" rather than an error:
 2. **Legacy inline fallback** — pre-split installs embedded `source` /
    `installed_at` directly in `install-metadata.json`. Read them from there so
    existing installs keep their fast path.
+   A consumer MAY also consult the primary checkout's sidecar when running
+   from a linked worktree (the primary is found via
+   `git rev-parse --git-common-dir`), after the legacy fallback and before
+   giving up; a linked worktree never has its own gitignored sidecar.
 3. **Unknown** — neither yields a usable path. Normal on a fresh clone; not a
    failure.
 
@@ -358,20 +362,29 @@ The other three columns are point-in-time observations — each carries the
 tool's tracking issue, and each requirement above carries a spot-check command
 you can run against that tool's clone to re-derive its row in seconds.
 
-Other tools' columns observed 2026-08-06 (repo#156), C10 observed 2026-09-29
-(repo#511); `repo` column verified on every test run.
+Other tools' columns were re-observed 2026-11-14 (repo#804) from fresh clones
+at loom `96f5053`, anvil `1403d9c` and squad `7031ae6`; squad's C4 cell was
+re-confirmed 2026-11-19 (repo#804) at squad `4636e41`, which is where its
+`after pnpm install + build` prerequisite was observed. The anvil and squad
+columns re-derive every cell C1-C10. The loom column re-derives only C1, C2, C4
+and C8: loom's installer builds `loom-daemon` and provisions host-wide binaries,
+so a scratch install is not possible on a shared worker. Its C3 and C5-C7 cells
+stay as observed 2026-08-06 (repo#156) and C10 as observed 2026-09-29 (repo#511);
+its C9 cell was never observed — the requirement landed 2026-08-17 (repo#385,
+closed), after that pass, and re-observing it needs the same loom install — so
+it reads unobserved below. The `repo` column is verified on every test run.
 
 | # | loom | anvil | repo | squad |
 |---|---|---|---|---|
-| C1 entry point | ✅ | ❌ `scripts/install-anvil.sh` only | ✅ | ✅ |
-| C2 target arg | ✅ | ✅ | ✅ | ✅ |
+| C1 entry point | ✅ | ✅ `install.sh` → `scripts/install-anvil.sh` | ✅ | ✅ |
+| C2 target arg | ❌ prompts when no target given | ❌ target required, no `.` default | ✅ | ✅ |
 | C3 `-y` | ✅ | ✅ | ✅ | ✅ |
-| C4 `--dry-run` | ❌ | ✅ | ✅ | ❌ |
-| C5 tracked metadata | ✅ | ✅ | ✅ | ❌ none |
-| C6 gitignored sidecar | ✅ | ❌ inline (legacy) | ✅ | ❌ |
-| C7 consumer resync | ✅ | ❌ | ✅ | ❌ |
-| C8 honest `VERSION` | ❌ empty | ❌ scraped from prose | ✅ | ❌ empty |
-| C9 gitignore sweep | ❌ not yet checked (repo#385) | ❌ not yet checked (repo#385) | ✅ | ❌ not yet checked (repo#385) |
+| C4 `--dry-run` | ✅ | ✅ | ✅ | ✅ after pnpm install + build |
+| C5 tracked metadata | ✅ | ❌ `anvil_version`, not `version` | ✅ | ✅ |
+| C6 gitignored sidecar | ✅ | ✅ | ✅ | ✅ |
+| C7 consumer resync | ✅ | ✅ | ✅ | ❌ none shipped |
+| C8 honest `VERSION` | ✅ | ✅ | ✅ | ✅ |
+| C9 gitignore sweep | ❓ never observed; needs loom install | ❌ no warning | ✅ | ❌ no warning |
 | C10 repo-owned pins | ✅ `.loom/resync-ignore` | ❌ | ✅ | ❌ |
 
 Conformance work is tracked per tool: Loom

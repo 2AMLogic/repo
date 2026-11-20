@@ -37,7 +37,8 @@
 #   .claude/skills/repo/scripts/resync-installed.sh     <- scripts/repo/resync-installed.sh
 #   .claude/commands/repo/<cmd>.md                      <- commands/repo/<cmd>.md
 #   .agents/skills/repo/SKILL.md                        <- skills/repo/SKILL.md (Codex form)
-#   .agents/skills/repo/references/<cmd>.md             <- commands/repo/<cmd>.md
+#   .agents/skills/repo-<cmd>/SKILL.md                  <- commands/repo/<cmd>.md (Codex form)
+#   (.agents/skills/repo/references/ is removed: pre-#676 layout, marker-gated)
 #   CLAUDE.md (REPO-SKILLS block, restamped to $VERSION) <- targeted field edit, not a copy
 #
 # The Codex half is refreshed ONLY when it is already installed and carries this
@@ -95,7 +96,10 @@
 #   2. .claude/skills/repo/.install-local.json -> "source" (the gitignored,
 #      machine-local sidecar).
 #   3. install-metadata.json -> "source" (pre-split installs embedded it inline).
-#   4. Otherwise: error. A source clone is required — this script refreshes FROM
+#   4. When TARGET is a linked git worktree: the PRIMARY checkout's
+#      .claude/skills/repo/.install-local.json -> "source" (primary found via
+#      git rev-parse --git-common-dir; a worktree never has the gitignored sidecar).
+#   5. Otherwise: error. A source clone is required — this script refreshes FROM
 #      something; it cannot invent the new bytes.
 #
 # ATOMIC WRITES + DEFERRED SELF-UPDATE: every file is written by rendering into a
@@ -251,13 +255,27 @@ else
     SOURCE_ROOT="$(json_string "$METADATA" source)"
     [[ -n "$SOURCE_ROOT" ]] && SOURCE_ORIGIN="legacy inline field (install-metadata.json)"
   fi
+  if [[ -z "$SOURCE_ROOT" ]]; then
+    # A linked worktree never has the gitignored sidecar; the primary checkout
+    # (where install.sh ran) does. Any failure here just falls through.
+    PRIMARY_ROOT=""
+    if COMMON_DIR="$(git -C "$TARGET" rev-parse --git-common-dir 2>/dev/null)" && [[ -n "$COMMON_DIR" ]]; then
+      [[ "$COMMON_DIR" == /* ]] || COMMON_DIR="$TARGET/$COMMON_DIR"
+      PRIMARY_ROOT="$(cd "$COMMON_DIR/.." 2>/dev/null && pwd -P)" || PRIMARY_ROOT=""
+    fi
+    if [[ -n "$PRIMARY_ROOT" && "$PRIMARY_ROOT" != "$TARGET" \
+          && -f "$PRIMARY_ROOT/.claude/skills/repo/.install-local.json" ]]; then
+      SOURCE_ROOT="$(json_string "$PRIMARY_ROOT/.claude/skills/repo/.install-local.json" source)"
+      [[ -n "$SOURCE_ROOT" ]] && SOURCE_ORIGIN="sidecar in primary checkout ($PRIMARY_ROOT)"
+    fi
+  fi
 fi
 
 if [[ -z "$SOURCE_ROOT" ]]; then
   # This is exactly the repo#96 signature /repo:update-tools reports: installed
   # here once, but the machine-local pointer is gone (typically deleted by
   # pulling a commit that untracked it).
-  die "Source clone unknown: no --source given, no $SIDECAR, and no legacy inline 'source' in install-metadata.json.
+  die "Source clone unknown: no --source given, no $SIDECAR, no legacy inline 'source' in install-metadata.json, and no sidecar in a primary checkout (when run from a linked worktree).
        Pass --source /path/to/repo-skills, or re-run that clone's install.sh once to regenerate the sidecar."
 fi
 
@@ -448,14 +466,13 @@ done <<<"$COMMANDS"
 # The Codex surface, when this install actually has one (see the header). The
 # SKILL.md is emitted by the same lib/codex-skill.sh function install.sh used, so
 # an untouched install reports "unchanged" rather than phantom drift; the
-# references/ files are ordinary rendered copies of the command procedures.
+# legacy references/ directory is migrated away (repo#676).
 CODEX_ROOT=""
 if [[ "$CODEX_EMITTER" == true ]] && codex_skill_is_managed "$TARGET/$CODEX_SKILL_REL/SKILL.md"; then
   CODEX_ROOT="$TARGET/$CODEX_SKILL_REL"
   plan "skills/repo/SKILL.md" "$CODEX_SKILL_REL/SKILL.md" 0 codex-skill
   while IFS= read -r cmd; do
     [[ -n "$cmd" ]] || continue
-    plan "commands/repo/$cmd.md" "$CODEX_REFERENCES_REL/$cmd.md" 0
     # Per-command skills (repo#676). A repo-<verb> dir someone else authored
     # (SKILL.md present, no marker) is never planned, so never overwritten.
     _cmd_dir="$(codex_command_skill_rel "$cmd")"
@@ -610,7 +627,7 @@ sync_claude_md_block() {
   # only $VERSION is expected to actually differ run to run.
   {
     echo "$MARKER_BEGIN"
-    echo "This repository has [Repo Skills](https://github.com/rjwalters/repo) v$VERSION installed —"
+    echo "This repository has [Repo Skills](https://github.com/2AMLogic/repo) v$VERSION installed —"
     echo "general repository hygiene and environment commands invoked as \`/repo:<command>\`. Run"
     echo "\`/repo:help\` for the command list, or see \`.claude/skills/repo/SKILL.md\` for the full"
     echo "guide. Hygiene commands apply safe, reversible fixes by default and report each"
@@ -696,6 +713,31 @@ while [[ $i -lt ${#PLAN_SRC[@]} ]]; do
   i=$((i + 1))
 done
 
+# Legacy umbrella references/ (pre-#676): redundant with the repo-<verb> skills.
+# Removed only while repo/SKILL.md is marker-managed (CODEX_ROOT implies that).
+if [[ -f "$SOURCE_ROOT/lib/retired-files.sh" ]]; then
+  # shellcheck source=../../lib/retired-files.sh
+  source "$SOURCE_ROOT/lib/retired-files.sh"
+fi
+if [[ -n "$CODEX_ROOT" && -d "$TARGET/$CODEX_REFERENCES_REL" ]]; then
+  if [[ -n "${RETIRED_CODEX_REFERENCE:-}" ]] &&
+     [[ -e "$TARGET/$RETIRED_CODEX_REFERENCE" || -L "$TARGET/$RETIRED_CODEX_REFERENCE" ]] &&
+     resync_ignore_is_pinned "$RETIRED_CODEX_REFERENCE"; then
+    N_PINNED=$((N_PINNED + 1))
+    report "pinned" "$YELLOW" "$RETIRED_CODEX_REFERENCE" "repo-owned via $RESYNC_IGNORE_REL"
+    _legacy_verb=removed
+    [[ "$DRY_RUN" != true ]] || _legacy_verb="would drop"
+    while IFS= read -r _legacy_reference; do
+      report "$_legacy_verb" "$YELLOW" "$_legacy_reference" "pre-#676 layout; now the repo-<verb> skills"
+    done < <(codex_migrate_references "$TARGET" "${RETIRED_CODEX_REFERENCE##*/}" "$DRY_RUN")
+  elif [[ "$DRY_RUN" == true ]]; then
+    report "would drop" "$YELLOW" "$CODEX_REFERENCES_REL/" "pre-#676 layout; now the repo-<verb> skills"
+  else
+    codex_migrate_references "$TARGET" >/dev/null
+    report "removed" "$YELLOW" "$CODEX_REFERENCES_REL/" "pre-#676 layout; now the repo-<verb> skills"
+  fi
+fi
+
 # Stale per-command Codex skills (repo#676): a marker-managed repo-<verb>/ whose
 # verb is no longer in this install's command set (a filtered install, or a verb
 # retired upstream) is removed. Unmarked directories are someone else's and stay.
@@ -705,6 +747,8 @@ if [[ -n "$CODEX_ROOT" ]]; then
     [[ -d "$_d" ]] || continue
     [[ "$_d" == "$CODEX_ROOT" ]] && continue
     codex_skill_is_managed "$_d/SKILL.md" || continue
+    # The retirement list owns this path, including its repo-owned pin.
+    [[ "${_d#"$TARGET"/}" == "${RETIRED_CODEX_SKILL_DIR:-}" ]] && continue
     _verb="${_d##*/}"; _verb="${_verb#"$CODEX_COMMAND_SLUG_PREFIX"}"
     grep -qxF "$_verb" <<<"$COMMANDS" && continue
     if [[ "$DRY_RUN" == true ]]; then
@@ -720,9 +764,12 @@ fi
 # longer ships (lib/retired-files.sh) are removed by name — the one exception to
 # "never uninstalls", because they are ours, not the consumer's. Pins are honored.
 N_RETIRED=0
-if [[ -f "$SOURCE_ROOT/lib/retired-files.sh" ]]; then
-  # shellcheck source=../../lib/retired-files.sh
-  source "$SOURCE_ROOT/lib/retired-files.sh"
+if declare -F retire_installed_files >/dev/null; then
+  _retired_skill="$RETIRED_CODEX_SKILL_DIR/SKILL.md"
+  if codex_skill_is_managed "$TARGET/$_retired_skill" && resync_ignore_is_pinned "$_retired_skill"; then
+    N_PINNED=$((N_PINNED + 1))
+    report "pinned" "$YELLOW" "$_retired_skill" "repo-owned via $RESYNC_IGNORE_REL"
+  fi
   while IFS=$'\t' read -r _v _p; do
     [[ -n "$_p" ]] || continue
     N_RETIRED=$((N_RETIRED + 1))
@@ -736,7 +783,7 @@ fi
 # ---------------------------------------------------------------------------
 ORPHANS=()
 ORPHAN_DIRS=("$TARGET/.claude/commands/repo" "$SKILL_ROOT" "$SKILL_ROOT/hooks" "$SKILL_ROOT/scripts")
-[[ -n "$CODEX_ROOT" ]] && ORPHAN_DIRS+=("$CODEX_ROOT" "$CODEX_ROOT/references")
+[[ -n "$CODEX_ROOT" ]] && ORPHAN_DIRS+=("$CODEX_ROOT")
 for d in "${ORPHAN_DIRS[@]}"; do
   [[ -d "$d" ]] || continue
   for f in "$d"/*; do
