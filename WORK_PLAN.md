@@ -3,7 +3,7 @@
 Prioritized roadmap generated from current GitHub label state, maintained automatically by the Guide triage agent. Regenerated whenever label state changes; do not hand-edit the generated region below.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-20T05:51:08Z (snapshot; compare against live labels)_
+_Generated: 2026-11-20T07:37:00Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
@@ -45,8 +45,8 @@ _None._
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
-- **#770**: fix: cut CHANGELOG version headings on bump and gate on a matching heading
-- **#860**: fix: refresh managed CLAUDE.md link on first update from a pre-move install
+- **#770**: fix: cut CHANGELOG version headings on bump and gate on a matching heading — closes #769
+- **#860**: fix: refresh managed CLAUDE.md link on first update from a pre-move install — closes #859
 
 ## Proposed
 
