@@ -769,12 +769,17 @@ done
 RETIRE_BIN="$SCRATCH/retirement-refusal-bin"
 mkdir -p "$RETIRE_BIN"
 RETIRE_REAL_RM="$(command -v rm)"
-export RETIRE_REAL_RM
+RETIRE_REAL_RMDIR="$(command -v rmdir)"
+export RETIRE_REAL_RM RETIRE_REAL_RMDIR
 cat >"$RETIRE_BIN/rm" <<'SHIM'
 #!/usr/bin/env bash
 for path in "$@"; do
   if [[ "$path" == "$RETIRE_BLOCKED_DIR" ]]; then
     "$RETIRE_REAL_RM" -f -- "$path/SKILL.md"
+    if [[ "$RETIRE_RMDIR_LATE" == true ]]; then
+      printf 'late entry\n' >"$path/.late"
+      exec "$RETIRE_REAL_RMDIR" -- "$path"
+    fi
   fi
   if [[ "$path" == "$RETIRE_BLOCKED_FILE" || "$path" == "$RETIRE_BLOCKED_CHILD" || "$path" == "$RETIRE_BLOCKED_DIR" ]]; then
     printf 'fixture: refusing removal of %s\n' "$path" >&2
@@ -783,7 +788,16 @@ for path in "$@"; do
 done
 exec "$RETIRE_REAL_RM" "$@"
 SHIM
-chmod +x "$RETIRE_BIN/rm"
+cat >"$RETIRE_BIN/rmdir" <<'SHIM'
+#!/usr/bin/env bash
+for path in "$@"; do
+  if [[ "$path" == "$RETIRE_BLOCKED_DIR" && "$RETIRE_RMDIR_LATE" == true ]]; then
+    printf 'late entry\n' >"$path/.late"
+  fi
+done
+exec "$RETIRE_REAL_RMDIR" "$@"
+SHIM
+chmod +x "$RETIRE_BIN/rm" "$RETIRE_BIN/rmdir"
 for writer in resync reinstall; do
     FTGT="$SCRATCH/retirement-refusal-$writer"
     new_target "$FTGT"
@@ -839,6 +853,35 @@ for writer in resync reinstall; do
     else
         ok "$writer retry clears both remaining paths"
     fi
+
+    # Let ordinary children go, then make the real rmdir fail because an entry appeared.
+    mkdir -p "$RETIRE_BLOCKED_DIR"
+    printf 'old\n' >"$RETIRE_BLOCKED_DIR/ordinary"
+    printf -- '---\nname: repo-remote\n---\n%s\n' "$CODEX_MARK" >"$RETIRE_BLOCKED_DIR/SKILL.md"
+    MARKER_BEFORE="$(cksum <"$RETIRE_BLOCKED_DIR/SKILL.md")"
+    if [[ "$writer" == resync ]]; then
+        RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" run_resync "$FTGT"
+        assert_eq "failed final rmdir makes resync exit 1" "1" "$RS_RC"
+    else
+        INSTALL_RC=0
+        RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" do_install "$RSRC" "$FTGT" || INSTALL_RC=$?
+        assert_eq "failed final rmdir makes reinstall exit 1" "1" "$INSTALL_RC"
+    fi
+    assert_file "$writer reached the final directory removal" "$RETIRE_BLOCKED_DIR/.late"
+    if [[ -e "$RETIRE_BLOCKED_DIR/ordinary" ]]; then no "$writer already removed the ordinary child"; else ok "$writer already removed the ordinary child"; fi
+    if [[ -f "$RETIRE_BLOCKED_DIR/SKILL.md" ]]; then
+        assert_eq "$writer restored the exact marker for retry" "$MARKER_BEFORE" "$(cksum <"$RETIRE_BLOCKED_DIR/SKILL.md")"
+    else
+        no "$writer restored the exact marker for retry"
+    fi
+    if [[ "$writer" == resync ]]; then
+        run_resync "$FTGT"
+        assert_eq "resync succeeds after final removal is possible" "0" "$RS_RC"
+    else
+        if do_install "$RSRC" "$FTGT"; then ok "reinstall succeeds after final removal is possible";
+        else no "reinstall succeeds after final removal is possible"; fi
+    fi
+    if [[ -e "$RETIRE_BLOCKED_DIR" ]]; then no "$writer retry removes the retired directory"; else ok "$writer retry removes the retired directory"; fi
 done
 
 # The #676 Codex migrations also see these paths. Their directory cleanup

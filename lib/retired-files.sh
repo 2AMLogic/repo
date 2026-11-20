@@ -27,18 +27,40 @@ RETIRED_CODEX_SKILL_DIRS=(
   "$RETIRED_CODEX_SKILL_DIR"
 )
 
-# Keep the ownership marker until all other entries are gone. If an extra
-# entry cannot be removed, the next run still recognizes the managed skill.
+# Keep the ownership marker through child cleanup and restore it if the final
+# directory removal fails. Development symlinks are removed as links.
 retire_managed_skill_dir() (
-  local dir="$1" entry
-  if [[ ! -L "$dir" ]]; then
-    shopt -s dotglob nullglob
-    for entry in "$dir"/*; do
-      [[ "$entry" == "$dir/SKILL.md" ]] && continue
-      rm -rf -- "$entry" || return 1
-    done
+  local dir="$1" entry marker_backup
+  if [[ -L "$dir" ]]; then
+    rm -f -- "$dir"
+    return
   fi
-  rm -rf -- "$dir"
+
+  shopt -s dotglob nullglob
+  for entry in "$dir"/*; do
+    [[ "$entry" == "$dir/SKILL.md" ]] && continue
+    rm -rf -- "$entry" || return 1
+  done
+
+  marker_backup="$(mktemp -d "${dir%/*}/.repo-skills-retirement.XXXXXX")" || return 1
+  if ! mv -- "$dir/SKILL.md" "$marker_backup/"; then
+    rmdir -- "$marker_backup"
+    return 1
+  fi
+
+  if rmdir -- "$dir"; then
+    rm -f -- "$marker_backup/SKILL.md" && rmdir -- "$marker_backup"
+    return
+  fi
+
+  if [[ -d "$dir" && ! -L "$dir" ]] &&
+     mv -n -- "$marker_backup/SKILL.md" "$dir/" &&
+     [[ ! -e "$marker_backup/SKILL.md" && ! -L "$marker_backup/SKILL.md" ]]; then
+    rmdir -- "$marker_backup"
+  else
+    printf 'Could not restore the retirement marker for %s; it remains in %s\n' "$dir" "$marker_backup" >&2
+  fi
+  return 1
 )
 
 # retire_installed_files <target> <dry-run:true|false>
