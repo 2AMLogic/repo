@@ -764,6 +764,83 @@ for f in .claude/commands/repo/remote.md .claude/skills/repo/scripts/repo-remote
     if [[ -e "$ITGT/$f" ]]; then no "reinstall removed $f"; else ok "reinstall removed $f"; fi
 done
 
+# Inject a refusal for a retired file and an entry inside a managed skill.
+# A whole-directory deletion can lose the marker before reporting failure.
+RETIRE_BIN="$SCRATCH/retirement-refusal-bin"
+mkdir -p "$RETIRE_BIN"
+RETIRE_REAL_RM="$(command -v rm)"
+export RETIRE_REAL_RM
+cat >"$RETIRE_BIN/rm" <<'SHIM'
+#!/usr/bin/env bash
+for path in "$@"; do
+  if [[ "$path" == "$RETIRE_BLOCKED_DIR" ]]; then
+    "$RETIRE_REAL_RM" -f -- "$path/SKILL.md"
+  fi
+  if [[ "$path" == "$RETIRE_BLOCKED_FILE" || "$path" == "$RETIRE_BLOCKED_CHILD" || "$path" == "$RETIRE_BLOCKED_DIR" ]]; then
+    printf 'fixture: refusing removal of %s\n' "$path" >&2
+    exit 1
+  fi
+done
+exec "$RETIRE_REAL_RM" "$@"
+SHIM
+chmod +x "$RETIRE_BIN/rm"
+for writer in resync reinstall; do
+    FTGT="$SCRATCH/retirement-refusal-$writer"
+    new_target "$FTGT"
+    do_install "$RSRC" "$FTGT"
+    RETIRE_BLOCKED_FILE="$FTGT/.claude/skills/repo/scripts/repo-remote.sh"
+    RETIRE_BLOCKED_DIR="$FTGT/.agents/skills/repo-remote"
+    RETIRE_BLOCKED_CHILD="$RETIRE_BLOCKED_DIR/.locked"
+    export RETIRE_BLOCKED_FILE RETIRE_BLOCKED_DIR RETIRE_BLOCKED_CHILD
+    mkdir -p "$RETIRE_BLOCKED_DIR"
+    printf 'old\n' >"$RETIRE_BLOCKED_CHILD"
+    printf 'old\n' >"$RETIRE_BLOCKED_FILE"
+    printf -- '---\nname: repo-remote\n---\n%s\n' "$CODEX_MARK" >"$RETIRE_BLOCKED_DIR/SKILL.md"
+    OTHER_RETIRED="$FTGT/.claude/commands/repo/remote.md"
+    printf 'old\n' >"$OTHER_RETIRED"
+
+    # Mark the prior version so an accidental re-stamp is observable.
+    META="$FTGT/.claude/skills/repo/install-metadata.json"
+    CODEX_META="$FTGT/.agents/skills/repo/install-metadata.json"
+    for metadata in "$META" "$CODEX_META"; do
+        jq '.version = "0.0.1"' "$metadata" >"$metadata.prior"
+        mv "$metadata.prior" "$metadata"
+    done
+    if [[ "$writer" == resync ]]; then
+        PATH="$RETIRE_BIN:$PATH" run_resync "$FTGT"
+        assert_eq "failed retirements make resync exit 1" "1" "$RS_RC"
+        assert_contains "resync counts only the removed path" "$RS_OUT" "1 retired, 2 FAILED"
+        assert_contains "resync names the failed file" "$RS_OUT" ".claude/skills/repo/scripts/repo-remote.sh (retirement failed)"
+        assert_contains "resync names the failed directory" "$RS_OUT" ".agents/skills/repo-remote/ (retirement failed)"
+    else
+        INSTALL_RC=0
+        PATH="$RETIRE_BIN:$PATH" do_install "$RSRC" "$FTGT" || INSTALL_RC=$?
+        assert_eq "failed retirements make reinstall exit 1" "1" "$INSTALL_RC"
+    fi
+    assert_file "$writer retains the failed file" "$RETIRE_BLOCKED_FILE"
+    assert_file "$writer retains ownership for retry" "$RETIRE_BLOCKED_DIR/SKILL.md"
+    assert_file "$writer retains the failed directory entry" "$RETIRE_BLOCKED_CHILD"
+    if [[ -e "$OTHER_RETIRED" ]]; then
+        no "$writer removes the other retired file"
+    else
+        ok "$writer removes the other retired file"
+    fi
+    assert_eq "$writer keeps the prior Claude version" "0.0.1" "$(jq -r .version "$META")"
+    assert_eq "$writer keeps the prior Codex version" "0.0.1" "$(jq -r .version "$CODEX_META")"
+    if [[ "$writer" == resync ]]; then
+        run_resync "$FTGT"
+        assert_eq "resync succeeds after the refusal clears" "0" "$RS_RC"
+    else
+        if do_install "$RSRC" "$FTGT"; then ok "reinstall succeeds after the refusal clears";
+        else no "reinstall succeeds after the refusal clears"; fi
+    fi
+    if [[ -e "$RETIRE_BLOCKED_FILE" || -e "$RETIRE_BLOCKED_DIR" ]]; then
+        no "$writer retry clears both remaining paths"
+    else
+        ok "$writer retry clears both remaining paths"
+    fi
+done
+
 # The #676 Codex migrations also see these paths. Their directory cleanup
 # must preserve the two repo-owned files while still migrating a sibling.
 PTGT="$SCRATCH/ret-codex-pins"; new_target "$PTGT"

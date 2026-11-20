@@ -444,6 +444,21 @@ fi
 
 confirm "Proceed? [Y/n] " Y || { info "Installation cancelled"; exit 0; }
 
+# Clear retired paths before replacing payload files or stamping the new version.
+_retired_skill="$RETIRED_CODEX_SKILL_DIR/SKILL.md"
+if codex_skill_is_managed "$TARGET/$_retired_skill" && resync_ignore_is_pinned "$_retired_skill"; then
+  info "Pinned (repo-owned, left alone): $_retired_skill"
+fi
+_retired_status=0
+_retired_output="$(retire_installed_files "$TARGET" false)" || _retired_status=$?
+while IFS=$'\t' read -r _v _p; do
+  case "$_v" in
+    removed) success "Removed retired $_p" ;;
+    failed) warning "Could not remove retired $_p" ;;
+  esac
+done <<<"$_retired_output"
+[[ "$_retired_status" -eq 0 ]] || error "Retirement incomplete. Fix the reported paths and re-run the installer."
+
 # In dev mode we symlink source files (edits are live, no re-install needed);
 # otherwise we render template variables and copy. We symlink per-file rather
 # than whole directories so install-metadata.json and any target-only files
@@ -869,17 +884,6 @@ install_file "$SOURCE_ROOT/scripts/repo/resync-installed.sh" \
   "$TARGET/.claude/skills/repo/scripts/resync-installed.sh" "scripts/repo/resync-installed.sh"
 chmod +x "$TARGET/.claude/skills/repo/scripts/resync-installed.sh" 2>/dev/null || true
 success_installed ".claude/skills/repo/scripts/resync-installed.sh"
-
-# 3e-2. Retire paths earlier versions installed under fixed names and this one no
-# longer ships (lib/retired-files.sh, repo#765). Runs on every install so a
-# reinstall — not only a resync — cleans the consumer.
-_retired_skill="$RETIRED_CODEX_SKILL_DIR/SKILL.md"
-if codex_skill_is_managed "$TARGET/$_retired_skill" && resync_ignore_is_pinned "$_retired_skill"; then
-  info "Pinned (repo-owned, left alone): $_retired_skill"
-fi
-while IFS=$'\t' read -r _v _p; do
-  [[ -n "$_p" ]] && success "Removed retired $_p"
-done < <(retire_installed_files "$TARGET" false)
 
 # 3f. Codex-side skill surface (.agents/skills/repo/). Codex CLI discovers
 # skills by scanning `.agents/skills` from the cwd up to the repo root, in the

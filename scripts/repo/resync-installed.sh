@@ -770,11 +770,25 @@ if declare -F retire_installed_files >/dev/null; then
     N_PINNED=$((N_PINNED + 1))
     report "pinned" "$YELLOW" "$_retired_skill" "repo-owned via $RESYNC_IGNORE_REL"
   fi
+  _retired_status=0
+  _failures_before_retirement="$N_FAILED"
+  _retired_output="$(retire_installed_files "$TARGET" "$DRY_RUN")" || _retired_status=$?
   while IFS=$'\t' read -r _v _p; do
-    [[ -n "$_p" ]] || continue
-    N_RETIRED=$((N_RETIRED + 1))
-    report "$_v" "$YELLOW" "$_p" "retired"
-  done < <(retire_installed_files "$TARGET" "$DRY_RUN")
+    case "$_v" in
+      failed)
+        N_FAILED=$((N_FAILED + 1))
+        FAILED_PATHS+=("$_p (retirement failed)")
+        report "FAILED" "$RED" "$_p" "cannot remove retired path"
+        ;;
+      "would drop"|removed)
+        N_RETIRED=$((N_RETIRED + 1))
+        report "$_v" "$YELLOW" "$_p" "retired"
+        ;;
+    esac
+  done <<<"$_retired_output"
+  if [[ "$_retired_status" -ne 0 && "$N_FAILED" -eq "$_failures_before_retirement" ]]; then
+    die "Retirement failed before any path status was reported."
+  fi
 fi
 
 # ---------------------------------------------------------------------------

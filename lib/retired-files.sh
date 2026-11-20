@@ -27,20 +27,36 @@ RETIRED_CODEX_SKILL_DIRS=(
   "$RETIRED_CODEX_SKILL_DIR"
 )
 
+# Keep the ownership marker until all other entries are gone. If an extra
+# entry cannot be removed, the next run still recognizes the managed skill.
+retire_managed_skill_dir() (
+  local dir="$1" entry
+  if [[ ! -L "$dir" ]]; then
+    shopt -s dotglob nullglob
+    for entry in "$dir"/*; do
+      [[ "$entry" == "$dir/SKILL.md" ]] && continue
+      rm -rf -- "$entry" || return 1
+    done
+  fi
+  rm -rf -- "$dir"
+)
+
 # retire_installed_files <target> <dry-run:true|false>
 # Prints one "<verb>\t<target-relative-path>" line per entry acted on, where verb
-# is "would drop" (dry run) or "removed". Silent when nothing is present. `rm -f`
-# on a symlink (--dev install) removes the link, never its target.
+# is "would drop", "removed", or "failed". Returns 1 if any removal failed.
+# Silent when nothing is present. `rm -f` on a dev symlink removes just the link.
 retire_installed_files() {
-  local target="$1" dry="$2" rel
+  local target="$1" dry="$2" rel failed=0
   for rel in "${RETIRED_INSTALLED_FILES[@]}"; do
     [[ -e "$target/$rel" || -L "$target/$rel" ]] || continue
     resync_ignore_is_pinned "$rel" && continue
     if [[ "$dry" == true ]]; then
       printf 'would drop\t%s\n' "$rel"
-    else
-      rm -f -- "$target/$rel"
+    elif rm -f -- "$target/$rel"; then
       printf 'removed\t%s\n' "$rel"
+    else
+      printf 'failed\t%s\n' "$rel"
+      failed=1
     fi
   done
   for rel in "${RETIRED_CODEX_SKILL_DIRS[@]}"; do
@@ -49,9 +65,12 @@ retire_installed_files() {
     resync_ignore_is_pinned "$rel/SKILL.md" && continue
     if [[ "$dry" == true ]]; then
       printf 'would drop\t%s/\n' "$rel"
-    else
-      rm -rf -- "$target/$rel"
+    elif retire_managed_skill_dir "$target/$rel"; then
       printf 'removed\t%s/\n' "$rel"
+    else
+      printf 'failed\t%s/\n' "$rel"
+      failed=1
     fi
   done
+  return "$failed"
 }
