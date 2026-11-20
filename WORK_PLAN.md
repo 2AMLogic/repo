@@ -3,7 +3,7 @@
 Prioritized roadmap generated from current GitHub label state, maintained automatically by the Guide triage agent. Regenerated whenever label state changes; do not hand-edit the generated region below.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-20T07:37:00Z (snapshot; compare against live labels)_
+_Generated: 2026-11-20T08:37:00Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
@@ -39,7 +39,7 @@ Issues currently being built (`loom:building`).
 
 PRs waiting on Judge (`loom:review-requested`).
 
-_None._
+- **#766**: feat: remove /repo:remote and retire its installed files on reinstall/resync
 
 ## Approved (Awaiting Merge)
 
@@ -76,7 +76,7 @@ _None._
 | Important | 1 |
 | Ready (`loom:issue`, net of holds/building/merge-pending) | 1 |
 | In Progress (`loom:building`) | 1 |
-| PRs awaiting review | 0 |
+| PRs awaiting review | 1 |
 | Approved PRs awaiting merge | 2 |
 | Curated | 6 |
 | Architect / Hermit proposals | 0 |
