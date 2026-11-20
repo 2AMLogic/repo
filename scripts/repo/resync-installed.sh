@@ -33,7 +33,6 @@
 #     at install time never had this file, and a resync must not start adding it
 #     — and never when the operator opted out with `install.sh --no-guard`,
 #     recorded as "guardHook": "disabled" and preserved on every re-stamp, repo#557)
-#   .claude/skills/repo/scripts/repo-remote.sh          <- scripts/repo/repo-remote.sh
 #   .claude/skills/repo/scripts/repo-scrub-forks.sh     <- scripts/repo/repo-scrub-forks.sh
 #   .claude/skills/repo/scripts/resync-installed.sh     <- scripts/repo/resync-installed.sh
 #   .claude/commands/repo/<cmd>.md                      <- commands/repo/<cmd>.md
@@ -436,7 +435,6 @@ if [[ "$GUARD_HOOK_INSTALLED" == true ]]; then
   plan "hooks/repo/guard-destructive.sh"      ".claude/skills/repo/hooks/guard-destructive.sh"  1
 fi
 plan "hooks/repo/session-start-handoff.sh"  ".claude/skills/repo/hooks/session-start-handoff.sh" 1
-plan "scripts/repo/repo-remote.sh"          ".claude/skills/repo/scripts/repo-remote.sh"      1
 plan "scripts/repo/repo-scrub-forks.sh"     ".claude/skills/repo/scripts/repo-scrub-forks.sh" 1
 plan "scripts/repo/repo-org-policy.py"      ".claude/skills/repo/scripts/repo-org-policy.py" 1
 plan "scripts/repo/repo-optimize-ci.py"     ".claude/skills/repo/scripts/repo-optimize-ci.py" 1
@@ -717,8 +715,22 @@ done
 
 # Legacy umbrella references/ (pre-#676): redundant with the repo-<verb> skills.
 # Removed only while repo/SKILL.md is marker-managed (CODEX_ROOT implies that).
+if [[ -f "$SOURCE_ROOT/lib/retired-files.sh" ]]; then
+  # shellcheck source=../../lib/retired-files.sh
+  source "$SOURCE_ROOT/lib/retired-files.sh"
+fi
 if [[ -n "$CODEX_ROOT" && -d "$TARGET/$CODEX_REFERENCES_REL" ]]; then
-  if [[ "$DRY_RUN" == true ]]; then
+  if [[ -n "${RETIRED_CODEX_REFERENCE:-}" ]] &&
+     [[ -e "$TARGET/$RETIRED_CODEX_REFERENCE" || -L "$TARGET/$RETIRED_CODEX_REFERENCE" ]] &&
+     resync_ignore_is_pinned "$RETIRED_CODEX_REFERENCE"; then
+    N_PINNED=$((N_PINNED + 1))
+    report "pinned" "$YELLOW" "$RETIRED_CODEX_REFERENCE" "repo-owned via $RESYNC_IGNORE_REL"
+    _legacy_verb=removed
+    [[ "$DRY_RUN" != true ]] || _legacy_verb="would drop"
+    while IFS= read -r _legacy_reference; do
+      report "$_legacy_verb" "$YELLOW" "$_legacy_reference" "pre-#676 layout; now the repo-<verb> skills"
+    done < <(codex_migrate_references "$TARGET" "${RETIRED_CODEX_REFERENCE##*/}" "$DRY_RUN")
+  elif [[ "$DRY_RUN" == true ]]; then
     report "would drop" "$YELLOW" "$CODEX_REFERENCES_REL/" "pre-#676 layout; now the repo-<verb> skills"
   else
     codex_migrate_references "$TARGET" >/dev/null
@@ -735,6 +747,8 @@ if [[ -n "$CODEX_ROOT" ]]; then
     [[ -d "$_d" ]] || continue
     [[ "$_d" == "$CODEX_ROOT" ]] && continue
     codex_skill_is_managed "$_d/SKILL.md" || continue
+    # The retirement list owns this path, including its repo-owned pin.
+    [[ "${_d#"$TARGET"/}" == "${RETIRED_CODEX_SKILL_DIR:-}" ]] && continue
     _verb="${_d##*/}"; _verb="${_verb#"$CODEX_COMMAND_SLUG_PREFIX"}"
     grep -qxF "$_verb" <<<"$COMMANDS" && continue
     if [[ "$DRY_RUN" == true ]]; then
@@ -744,6 +758,37 @@ if [[ -n "$CODEX_ROOT" ]]; then
       report "removed" "$YELLOW" "${_d#"$TARGET"/}/" "verb not in this install"
     fi
   done
+fi
+
+# Retired files (repo#765): paths this tool installed under fixed names and no
+# longer ships (lib/retired-files.sh) are removed by name — the one exception to
+# "never uninstalls", because they are ours, not the consumer's. Pins are honored.
+N_RETIRED=0
+if declare -F retire_installed_files >/dev/null; then
+  _retired_skill="$RETIRED_CODEX_SKILL_DIR/SKILL.md"
+  if codex_skill_is_managed "$TARGET/$_retired_skill" && resync_ignore_is_pinned "$_retired_skill"; then
+    N_PINNED=$((N_PINNED + 1))
+    report "pinned" "$YELLOW" "$_retired_skill" "repo-owned via $RESYNC_IGNORE_REL"
+  fi
+  _retired_status=0
+  _failures_before_retirement="$N_FAILED"
+  _retired_output="$(retire_installed_files "$TARGET" "$DRY_RUN")" || _retired_status=$?
+  while IFS=$'\t' read -r _v _p; do
+    case "$_v" in
+      failed)
+        N_FAILED=$((N_FAILED + 1))
+        FAILED_PATHS+=("$_p (retirement failed)")
+        report "FAILED" "$RED" "$_p" "cannot remove retired path"
+        ;;
+      "would drop"|removed)
+        N_RETIRED=$((N_RETIRED + 1))
+        report "$_v" "$YELLOW" "$_p" "retired"
+        ;;
+    esac
+  done <<<"$_retired_output"
+  if [[ "$_retired_status" -ne 0 && "$N_FAILED" -eq "$_failures_before_retirement" ]]; then
+    die "Retirement failed before any path status was reported."
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -853,7 +898,7 @@ stamp_sidecar() {
   mv -f "$tmp" "$SIDECAR" 2>/dev/null || { rm -f "$tmp"; warn "Could not update the sidecar — last_resync not recorded"; }
 }
 
-CHANGED=$((N_CREATED + N_UPDATED))
+CHANGED=$((N_CREATED + N_UPDATED + N_RETIRED))
 
 if [[ "$DRY_RUN" != true && "$N_FAILED" -eq 0 ]]; then
   stamp_metadata
@@ -865,6 +910,7 @@ SUMMARY="$(printf '%s synced, %s added, %s unchanged, %s skipped' "$N_UPDATED" "
 # pin list is noise, and --quiet exists precisely because this one line is all a
 # fleet-wide driver reads.
 [[ "$N_PINNED" -gt 0 ]] && SUMMARY="$SUMMARY, $N_PINNED pinned"
+[[ "$N_RETIRED" -gt 0 ]] && SUMMARY="$SUMMARY, $N_RETIRED retired"
 [[ "$N_FAILED" -gt 0 ]] && SUMMARY="$SUMMARY, $N_FAILED FAILED"
 say ""
 

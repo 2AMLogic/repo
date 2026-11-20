@@ -69,11 +69,6 @@ Can start today. Every merge in this repo currently needs a human (see
 
 ## Next
 
-- **Trim what only `/repo:remote` used**, once #766 lands: `Dockerfile` and
-  `.github/workflows/docker-build.yml` if #766 leaves them, and the row for
-  `remote-exec-provenance.md` in [`docs/README.md`](README.md). Done when:
-  `grep -ri 'repo-remote\|repo:remote'` over tracked files outside
-  `CHANGELOG.md`, `WORK_LOG.md` and `work_log/` returns nothing unintended.
 - **First release with a real CHANGELOG section**, once PR #770 merges. Done
   when: `/repo:release` Phase 1.5's version-header check passes on `main` and
   the next bump cuts its own dated heading.
