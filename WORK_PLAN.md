@@ -3,10 +3,10 @@
 Prioritized roadmap generated from current GitHub label state, maintained automatically by the Guide triage agent. Regenerated whenever label state changes; do not hand-edit the generated region below.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-20T15:09:19Z (snapshot; compare against live labels)_
+_Generated: 2026-11-21T18:28:04Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
-These PRs require a human merge decision. PR #770 also has a merge conflict.
+Judge-approved PRs under a hold (`loom:blocked` or `loom:operator`) — only a human merge decision is missing.
 
 - **#766**: feat: remove /repo:remote and retire its installed files on reinstall/resync
 - **#770**: fix: cut CHANGELOG version headings on bump and gate on a matching heading
@@ -46,7 +46,7 @@ _None._
 
 PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 
-- **#766**: feat: remove /repo:remote and retire its installed files on reinstall/resync — closes #765
+- **#766**: feat: remove /repo:remote and retire its installed files on reinstall/resync — closes #565, #754, #765
 - **#770**: fix: cut CHANGELOG version headings on bump and gate on a matching heading — closes #769
 - **#860**: fix: refresh managed CLAUDE.md link on first update from a pre-move install — closes #859
 
