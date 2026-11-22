@@ -171,18 +171,30 @@ codex_skill_render() {
   fi
 }
 
-# codex_migrate_references <consumer-root>
+# codex_migrate_references <consumer-root> [keep-filename] [dry-run]
 # One-time migration (repo#676): older installs put every command procedure under
 # `repo/references/`. Those are now redundant with the `repo-<verb>` skills, so
 # remove the directory -- but only when `repo/SKILL.md` carries the ownership
 # marker. A foreign or unmarked `repo/` is never touched. Idempotent. Echoes the
-# removed relative path when it removed something.
+# removed relative paths. A writer can retain a repo-owned legacy filename
+# while migrating its siblings.
 codex_migrate_references() {
-  local root="$1"
-  [[ -d "$root/$CODEX_REFERENCES_REL" ]] || return 0
+  local root="$1" keep="${2:-}" dry_run="${3:-false}" references entry
+  references="${root:?}/$CODEX_REFERENCES_REL"
+  [[ -d "$references" ]] || return 0
   codex_skill_is_managed "$root/$CODEX_SKILL_REL/SKILL.md" || return 0
-  rm -rf -- "${root:?}/$CODEX_REFERENCES_REL"
-  printf '%s/\n' "$CODEX_REFERENCES_REL"
+  if [[ -z "$keep" ]]; then
+    [[ "$dry_run" == true ]] || rm -rf -- "$references" || return 1
+    printf '%s/\n' "$CODEX_REFERENCES_REL"
+    return
+  fi
+  [[ ! -L "$references" ]] || return 0
+  for entry in "$references"/* "$references"/.[!.]* "$references"/..?*; do
+    [[ -e "$entry" || -L "$entry" ]] || continue
+    [[ "${entry##*/}" != "$keep" ]] || continue
+    [[ "$dry_run" == true ]] || rm -rf -- "$entry" || continue
+    printf '%s/%s\n' "$CODEX_REFERENCES_REL" "${entry##*/}"
+  done
 }
 
 # ---------------------------------------------------------------------------

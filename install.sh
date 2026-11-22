@@ -161,6 +161,8 @@ source "$SOURCE_ROOT/lib/gitignore-check.sh"
 # undoes it on its next run. See lib/resync-ignore.sh (repo#511).
 # shellcheck source=lib/resync-ignore.sh
 source "$SOURCE_ROOT/lib/resync-ignore.sh"
+# shellcheck source=lib/retired-files.sh
+source "$SOURCE_ROOT/lib/retired-files.sh"
 
 INSTALL_DATE="$(date -u +%Y-%m-%d)"
 REPO_OWNER="OWNER"
@@ -380,7 +382,6 @@ if [[ "$DRY_RUN" == true ]]; then
     echo "  $TARGET/.claude/skills/repo/hooks/guard-destructive.sh"
   fi
   echo "  $TARGET/.claude/skills/repo/hooks/session-start-handoff.sh"
-  echo "  $TARGET/.claude/skills/repo/scripts/repo-remote.sh"
   echo "  $TARGET/.claude/skills/repo/scripts/repo-scrub-forks.sh"
   echo "  $TARGET/.claude/skills/repo/scripts/repo-org-policy.py"
   echo "  $TARGET/.claude/skills/repo/scripts/repo-optimize-ci.py"
@@ -417,6 +418,11 @@ if [[ "$DRY_RUN" == true ]]; then
     echo "  $TARGET/.gitignore (.claude/skills/repo/.install-local.json entry$([[ "$CODEX" == true ]] && ! codex_target_is_foreign && echo " + $CODEX_SKILL_REL/.install-local.json entry"))"
     echo "  $TARGET/CLAUDE.md (marker-bounded REPO-SKILLS block)"
   fi
+  _dry_run_retired="$(retire_installed_files "$TARGET" true)"
+  if [[ -n "$_dry_run_retired" ]]; then
+    echo "Would remove (retired by this tool):"
+    while IFS=$'\t' read -r _v _p; do echo "  $TARGET/$_p"; done <<<"$_dry_run_retired"
+  fi
   if resync_ignore_active; then
     echo "Pinned as repo-owned in $RESYNC_IGNORE_REL — NOT written (C10):"
     while IFS= read -r _dry_run_pin; do
@@ -437,6 +443,21 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 
 confirm "Proceed? [Y/n] " Y || { info "Installation cancelled"; exit 0; }
+
+# Clear retired paths before replacing payload files or stamping the new version.
+_retired_skill="$RETIRED_CODEX_SKILL_DIR/SKILL.md"
+if codex_skill_is_managed "$TARGET/$_retired_skill" && resync_ignore_is_pinned "$_retired_skill"; then
+  info "Pinned (repo-owned, left alone): $_retired_skill"
+fi
+_retired_status=0
+_retired_output="$(retire_installed_files "$TARGET" false)" || _retired_status=$?
+while IFS=$'\t' read -r _v _p; do
+  case "$_v" in
+    removed) success "Removed retired $_p" ;;
+    failed) warning "Could not remove retired $_p" ;;
+  esac
+done <<<"$_retired_output"
+[[ "$_retired_status" -eq 0 ]] || error "Retirement incomplete. Fix the reported paths and re-run the installer."
 
 # In dev mode we symlink source files (edits are live, no re-install needed);
 # otherwise we render template variables and copy. We symlink per-file rather
@@ -828,21 +849,10 @@ chmod +x "$TARGET/.claude/skills/repo/hooks/session-start-handoff.sh" 2>/dev/nul
 success_installed ".claude/skills/repo/hooks/session-start-handoff.sh"
 merge_settings_sessionstart_hook
 
-# 3d. Headless provisioning script for /repo:remote. Same colocation + chmod
-# rationale as the hooks above: it lives inside .claude/skills/repo/ so
-# uninstall's `rm -rf` removes it for free, and render+copy drops the exec bit
-# so we re-set it. This is the non-interactive entry point the interactive
-# skill delegates to and that a caller (e.g. loom's `fleet add-worker`) invokes
-# directly — without this copy step the script would ship in the source repo
-# but never reach a consumer repo (repo#52).
 mkdir -p "$TARGET/.claude/skills/repo/scripts"
-install_file "$SOURCE_ROOT/scripts/repo/repo-remote.sh" \
-  "$TARGET/.claude/skills/repo/scripts/repo-remote.sh" "scripts/repo/repo-remote.sh"
-chmod +x "$TARGET/.claude/skills/repo/scripts/repo-remote.sh" 2>/dev/null || true
-success_installed ".claude/skills/repo/scripts/repo-remote.sh"
 
 # 3d-2. Fork-network sweep script for /repo:scrub --forks. Same colocation +
-# chmod rationale as repo-remote.sh above: SKILL.md, README.md, and
+# chmod rationale as the hooks above: SKILL.md, README.md, and
 # commands/repo/scrub.md all document it as installed to
 # .claude/skills/repo/scripts/, so it must actually ship there (repo#298).
 install_file "$SOURCE_ROOT/scripts/repo/repo-scrub-forks.sh" \
@@ -932,9 +942,15 @@ else
 
   # Migration (repo#676): the umbrella no longer carries references/. Only
   # removed once SKILL.md is proven ours (codex_target_is_foreign was false above).
-  if [[ -n "$(codex_migrate_references "$TARGET")" ]]; then
-    success "Removed legacy $CODEX_REFERENCES_REL/ (the command procedures are now the repo-<verb> skills)"
+  _keep_reference=""
+  if [[ -e "$TARGET/$RETIRED_CODEX_REFERENCE" || -L "$TARGET/$RETIRED_CODEX_REFERENCE" ]] &&
+     resync_ignore_is_pinned "$RETIRED_CODEX_REFERENCE"; then
+    _keep_reference="${RETIRED_CODEX_REFERENCE##*/}"
+    info "Pinned (repo-owned, left alone): $RETIRED_CODEX_REFERENCE"
   fi
+  while IFS= read -r _legacy_reference; do
+    success "Removed legacy $_legacy_reference (the command procedures are now the repo-<verb> skills)"
+  done < <(codex_migrate_references "$TARGET" "$_keep_reference")
   CODEX_INSTALLED=true
 
   # Per-command skills (repo#676): each selected command is also its own
