@@ -2,7 +2,7 @@
 
 **General-purpose repository skills for Claude Code and OpenAI Codex CLI.**
 
-Repo is a collection of skills for keeping any git repository healthy and productive — auditing hygiene, tidying clutter, and launching cloud dev sessions with the repo ready to go. Skills install into a target repository (the consumer repo) and are invoked from Claude Code as `/repo:<command>`, or from Codex CLI as the `repo` skill (see [Codex packaging](#codex-packaging-agentsskillsrepo)).
+Repo is a collection of skills for keeping any git repository healthy and productive — auditing hygiene, tidying clutter, and preparing releases. Skills install into a target repository (the consumer repo) and are invoked from Claude Code as `/repo:<command>`, or from Codex CLI as the `repo` skill (see [Codex packaging](#codex-packaging-agentsskillsrepo)).
 
 **Sibling projects:** [Loom](https://github.com/rjwalters/loom) orchestrates AI development workers around a forge. [Anvil](https://github.com/rjwalters/anvil) orchestrates long-form artifact creation. Repo is the toolbox both of them assume: generic repository hygiene and environment skills that work in any repo. All three can be installed side by side.
 
@@ -40,7 +40,7 @@ a PR installing the resolved preferences into that owner's `.github` repository.
 `/repo:deps` then handles client adoption. The default is 14-day routine updates,
 one-day advisory-backed security updates, and a separate opt-in for automerge.
 
-Hygiene skills **apply their safe, reversible fixes by default** and report each change; add `--ask` to review findings and confirm first. Irreversible actions (deleting branches, worktrees, stashes, untracked files) are never automatic — they require an explicit opt-in and pass a permanent-loss check. Commands whose only action is consequential (`orphans`, `update-tools`, `deps`, `followups`, `release`, `remote`, `browser`, `sudo`) always confirm first.
+Hygiene skills **apply their safe, reversible fixes by default** and report each change; add `--ask` to review findings and confirm first. Irreversible actions (deleting branches, worktrees, stashes, untracked files) are never automatic — they require an explicit opt-in and pass a permanent-loss check. Commands whose only action is consequential (`orphans`, `update-tools`, `deps`, `followups`, `release`, `browser`, `sudo`) always confirm first.
 
 ## Destructive-command protection
 
@@ -133,7 +133,7 @@ The installer copies the skill files into a target repository's `.claude/` (Clau
 ./install.sh ~/projects/my-app
 
 # Install only specific skills
-./install.sh --skills=reset,remote ~/projects/my-app
+./install.sh --skills=reset,tidy ~/projects/my-app
 
 # Claude Code only — skip the Codex skill surface (see "Codex packaging" above)
 ./install.sh --no-codex ~/projects/my-app
