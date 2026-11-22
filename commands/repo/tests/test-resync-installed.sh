@@ -5,7 +5,7 @@
 # Usage: ./commands/repo/tests/test-resync-installed.sh
 # Exit code 0 = all tests pass, 1 = failures detected.
 #
-# Structured like commands/repo/tests/test-repo-remote.sh: pure bash, no
+# Structured like commands/repo/tests/test-repo-scrub-forks.sh: pure bash, no
 # framework, PASS/FAIL/TOTAL counters and a summary block. `pnpm test` delegates
 # to this file via hooks/repo/tests/run.sh.
 #
@@ -767,6 +767,283 @@ if [[ -f "$CONTRACT" ]]; then
     assert_contains "the contract forbids uninstalling" "$CT" "**MUST NOT** uninstall"
     assert_contains "the contract says why" "$CT" "refresh that can delete"
 fi
+
+# ---------------------------------------------------------------------------
+echo ""
+echo "-- retired files (repo#765: /repo:remote removed) --"
+RSRC="$SCRATCH/ret-src"; RTGT="$SCRATCH/ret-tgt"
+new_source "$RSRC"; new_target "$RTGT"
+do_install "$RSRC" "$RTGT"
+# shellcheck source=../../../lib/codex-skill.sh
+CODEX_MARK="$(source "$REPO_ROOT/lib/codex-skill.sh" >/dev/null 2>&1; printf '%s' "$CODEX_MANAGED_MARKER")"
+seed_retired() {  # <target> — plant the four paths an old install left behind
+    local t="$1"
+    mkdir -p "$t/.agents/skills/repo/references" "$t/.agents/skills/repo-remote"
+    echo old >"$t/.claude/commands/repo/remote.md"
+    echo old >"$t/.claude/skills/repo/scripts/repo-remote.sh"
+    echo old >"$t/.agents/skills/repo/references/remote.md"
+    printf -- '---\nname: repo-remote\n---\n%s\n' "$CODEX_MARK" >"$t/.agents/skills/repo-remote/SKILL.md"
+}
+if [[ -n "$CODEX_MARK" ]]; then ok "found the Codex managed marker"; else no "found the Codex managed marker"; fi
+seed_retired "$RTGT"
+
+BEFORE="$(tree_fingerprint "$RTGT")"
+run_resync "$RTGT" --dry-run
+AFTER="$(tree_fingerprint "$RTGT")"
+assert_eq "dry-run with retired files present exits 2 (drift)" "2" "$RS_RC"
+assert_contains "dry-run reports would drop" "$RS_OUT" "would drop"
+assert_contains "dry-run names the retired command" "$RS_OUT" ".claude/commands/repo/remote.md"
+assert_eq "dry-run deleted nothing" "$BEFORE" "$AFTER"
+
+run_resync "$RTGT"
+assert_eq "apply exits 0" "0" "$RS_RC"
+for f in .claude/commands/repo/remote.md .claude/skills/repo/scripts/repo-remote.sh \
+         .agents/skills/repo/references/remote.md .agents/skills/repo-remote; do
+    if [[ -e "$RTGT/$f" ]]; then no "resync removed $f"; else ok "resync removed $f"; fi
+done
+run_resync "$RTGT"
+assert_eq "second apply exits 0" "0" "$RS_RC"
+assert_contains "second apply reports in sync" "$RS_OUT" "Already in sync"
+
+# A consumer that never had the files: no error, nothing reported.
+run_resync "$RTGT" --dry-run
+assert_eq "no retired files present: dry-run exits 0" "0" "$RS_RC"
+assert_not_contains "no retired files present: nothing reported" "$RS_OUT" "retired"
+
+# An unmarked (user-authored) repo-remote Codex skill is left alone.
+mkdir -p "$RTGT/.agents/skills/repo-remote"
+echo "my own skill" >"$RTGT/.agents/skills/repo-remote/SKILL.md"
+run_resync "$RTGT"
+assert_file "an unmarked repo-remote skill survives resync" "$RTGT/.agents/skills/repo-remote/SKILL.md"
+
+# A pinned retired path is the consumer's and stays.
+echo old >"$RTGT/.claude/commands/repo/remote.md"
+echo ".claude/commands/repo/remote.md" >"$RTGT/.claude/skills/repo/resync-ignore"
+run_resync "$RTGT"
+assert_file "a pinned retired path survives resync" "$RTGT/.claude/commands/repo/remote.md"
+
+# Reinstall (install.sh) retires the same paths; its dry-run only lists them.
+ITGT="$SCRATCH/ret-reinstall"; new_target "$ITGT"
+do_install "$RSRC" "$ITGT"
+seed_retired "$ITGT"
+DRY="$( cd "$ITGT" && HOME="$FAKE_HOME" bash "$RSRC/install.sh" -y --dry-run "$ITGT" 2>&1 )"
+assert_contains "install --dry-run lists the retired script for removal" "$DRY" "Would remove"
+assert_file "install --dry-run removed nothing" "$ITGT/.claude/skills/repo/scripts/repo-remote.sh"
+do_install "$RSRC" "$ITGT"
+for f in .claude/commands/repo/remote.md .claude/skills/repo/scripts/repo-remote.sh \
+         .agents/skills/repo/references/remote.md .agents/skills/repo-remote; do
+    if [[ -e "$ITGT/$f" ]]; then no "reinstall removed $f"; else ok "reinstall removed $f"; fi
+done
+
+# Inject a refusal for a retired file and an entry inside a managed skill.
+# A whole-directory deletion can lose the marker before reporting failure.
+RETIRE_BIN="$SCRATCH/retirement-refusal-bin"
+mkdir -p "$RETIRE_BIN"
+RETIRE_REAL_RM="$(command -v rm)"
+RETIRE_REAL_RMDIR="$(command -v rmdir)"
+RETIRE_REAL_MV="$(command -v mv)"
+export RETIRE_REAL_RM RETIRE_REAL_RMDIR RETIRE_REAL_MV
+cat >"$RETIRE_BIN/rm" <<'SHIM'
+#!/usr/bin/env bash
+for path in "$@"; do
+  if [[ "$path" == ./* && "$(pwd -P)" == "$RETIRE_BLOCKED_DIR" ]]; then
+    path="$RETIRE_BLOCKED_DIR/${path#./}"
+  fi
+  if [[ "$path" == "$RETIRE_BLOCKED_DIR" ]]; then
+    "$RETIRE_REAL_RM" -f -- "$path/SKILL.md"
+    if [[ "$RETIRE_RMDIR_LATE" == true ]]; then
+      printf 'late entry\n' >"$path/.late"
+      exec "$RETIRE_REAL_RMDIR" -- "$path"
+    fi
+  fi
+  if [[ "$path" == "$RETIRE_BLOCKED_FILE" || "$path" == "$RETIRE_BLOCKED_CHILD" || "$path" == "$RETIRE_BLOCKED_DIR" ]]; then
+    printf 'fixture: refusing removal of %s\n' "$path" >&2
+    exit 1
+  fi
+done
+exec "$RETIRE_REAL_RM" "$@"
+SHIM
+cat >"$RETIRE_BIN/rmdir" <<'SHIM'
+#!/usr/bin/env bash
+for path in "$@"; do
+  if [[ "$path" == "$RETIRE_BLOCKED_DIR" && "$RETIRE_RMDIR_LATE" == true ]]; then
+    printf 'late entry\n' >"$path/.late"
+  fi
+done
+exec "$RETIRE_REAL_RMDIR" "$@"
+SHIM
+cat >"$RETIRE_BIN/mv" <<'SHIM'
+#!/usr/bin/env bash
+destination="${!#}"
+if [[ "$destination" == ./ && "$(pwd -P)" == "$RETIRE_BLOCKED_DIR" ]]; then
+  destination="$RETIRE_BLOCKED_DIR/"
+fi
+if [[ "$RETIRE_RESTORE_DENIED" == true && "$destination" == "$RETIRE_BLOCKED_DIR/" ]]; then
+  printf 'fixture: refusing to restore the ownership marker\n' >&2
+  exit 1
+fi
+exec "$RETIRE_REAL_MV" "$@"
+SHIM
+chmod +x "$RETIRE_BIN/rm" "$RETIRE_BIN/rmdir" "$RETIRE_BIN/mv"
+for writer in resync reinstall; do
+    FTGT="$SCRATCH/retirement-refusal-$writer"
+    new_target "$FTGT"
+    do_install "$RSRC" "$FTGT"
+    RETIRE_BLOCKED_FILE="$FTGT/.claude/skills/repo/scripts/repo-remote.sh"
+    RETIRE_BLOCKED_DIR="$FTGT/.agents/skills/repo-remote"
+    RETIRE_BLOCKED_CHILD="$RETIRE_BLOCKED_DIR/.locked"
+    export RETIRE_BLOCKED_FILE RETIRE_BLOCKED_DIR RETIRE_BLOCKED_CHILD
+    mkdir -p "$RETIRE_BLOCKED_DIR"
+    printf 'old\n' >"$RETIRE_BLOCKED_CHILD"
+    printf 'old\n' >"$RETIRE_BLOCKED_FILE"
+    printf -- '---\nname: repo-remote\n---\n%s\n' "$CODEX_MARK" >"$RETIRE_BLOCKED_DIR/SKILL.md"
+    OTHER_RETIRED="$FTGT/.claude/commands/repo/remote.md"
+    printf 'old\n' >"$OTHER_RETIRED"
+
+    # Mark the prior version so an accidental re-stamp is observable.
+    META="$FTGT/.claude/skills/repo/install-metadata.json"
+    CODEX_META="$FTGT/.agents/skills/repo/install-metadata.json"
+    for metadata in "$META" "$CODEX_META"; do
+        jq '.version = "0.0.1"' "$metadata" >"$metadata.prior"
+        mv "$metadata.prior" "$metadata"
+    done
+    if [[ "$writer" == resync ]]; then
+        PATH="$RETIRE_BIN:$PATH" run_resync "$FTGT"
+        assert_eq "failed retirements make resync exit 1" "1" "$RS_RC"
+        assert_contains "resync counts only the removed path" "$RS_OUT" "1 retired, 2 FAILED"
+        assert_contains "resync names the failed file" "$RS_OUT" ".claude/skills/repo/scripts/repo-remote.sh (retirement failed)"
+        assert_contains "resync names the failed directory" "$RS_OUT" ".agents/skills/repo-remote/ (retirement failed)"
+    else
+        INSTALL_RC=0
+        PATH="$RETIRE_BIN:$PATH" do_install "$RSRC" "$FTGT" || INSTALL_RC=$?
+        assert_eq "failed retirements make reinstall exit 1" "1" "$INSTALL_RC"
+    fi
+    assert_file "$writer retains the failed file" "$RETIRE_BLOCKED_FILE"
+    assert_file "$writer retains ownership for retry" "$RETIRE_BLOCKED_DIR/SKILL.md"
+    assert_file "$writer retains the failed directory entry" "$RETIRE_BLOCKED_CHILD"
+    if [[ -e "$OTHER_RETIRED" ]]; then
+        no "$writer removes the other retired file"
+    else
+        ok "$writer removes the other retired file"
+    fi
+    assert_eq "$writer keeps the prior Claude version" "0.0.1" "$(jq -r .version "$META")"
+    assert_eq "$writer keeps the prior Codex version" "0.0.1" "$(jq -r .version "$CODEX_META")"
+    if [[ "$writer" == resync ]]; then
+        run_resync "$FTGT"
+        assert_eq "resync succeeds after the refusal clears" "0" "$RS_RC"
+    else
+        if do_install "$RSRC" "$FTGT"; then ok "reinstall succeeds after the refusal clears";
+        else no "reinstall succeeds after the refusal clears"; fi
+    fi
+    if [[ -e "$RETIRE_BLOCKED_FILE" || -e "$RETIRE_BLOCKED_DIR" ]]; then
+        no "$writer retry clears both remaining paths"
+    else
+        ok "$writer retry clears both remaining paths"
+    fi
+
+    # Let ordinary children go, then make the real rmdir fail because an entry appeared.
+    mkdir -p "$RETIRE_BLOCKED_DIR"
+    printf 'old\n' >"$RETIRE_BLOCKED_DIR/ordinary"
+    printf -- '---\nname: repo-remote\n---\n%s\n' "$CODEX_MARK" >"$RETIRE_BLOCKED_DIR/SKILL.md"
+    MARKER_BEFORE="$(cksum <"$RETIRE_BLOCKED_DIR/SKILL.md")"
+    if [[ "$writer" == resync ]]; then
+        RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" run_resync "$FTGT"
+        assert_eq "failed final rmdir makes resync exit 1" "1" "$RS_RC"
+    else
+        INSTALL_RC=0
+        RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" do_install "$RSRC" "$FTGT" || INSTALL_RC=$?
+        assert_eq "failed final rmdir makes reinstall exit 1" "1" "$INSTALL_RC"
+    fi
+    assert_file "$writer reached the final directory removal" "$RETIRE_BLOCKED_DIR/.late"
+    if [[ -e "$RETIRE_BLOCKED_DIR/ordinary" ]]; then no "$writer already removed the ordinary child"; else ok "$writer already removed the ordinary child"; fi
+    if [[ -f "$RETIRE_BLOCKED_DIR/SKILL.md" ]]; then
+        assert_eq "$writer restored the exact marker for retry" "$MARKER_BEFORE" "$(cksum <"$RETIRE_BLOCKED_DIR/SKILL.md")"
+    else
+        no "$writer restored the exact marker for retry"
+    fi
+    if [[ "$writer" == resync ]]; then
+        run_resync "$FTGT"
+        assert_eq "resync succeeds after final removal is possible" "0" "$RS_RC"
+    else
+        if do_install "$RSRC" "$FTGT"; then ok "reinstall succeeds after final removal is possible";
+        else no "reinstall succeeds after final removal is possible"; fi
+    fi
+    if [[ -e "$RETIRE_BLOCKED_DIR" ]]; then no "$writer retry removes the retired directory"; else ok "$writer retry removes the retired directory"; fi
+
+    # An unsuccessful marker restore leaves a durable, target-bound refusal.
+    mkdir -p "$RETIRE_BLOCKED_DIR"
+    printf -- '---\nname: repo-remote\n---\n%s\n' "$CODEX_MARK" >"$RETIRE_BLOCKED_DIR/SKILL.md"
+    MARKER_BEFORE="$(cksum <"$RETIRE_BLOCKED_DIR/SKILL.md")"
+    pending="$FTGT/.agents/skills/.repo-skills-retirement.repo-remote"
+    if [[ "$writer" == resync ]]; then
+        RETIRE_RESTORE_DENIED=true RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" run_resync "$FTGT"
+        assert_eq "failed marker restore makes resync exit 1" "1" "$RS_RC"
+    else
+        INSTALL_RC=0
+        RETIRE_RESTORE_DENIED=true RETIRE_RMDIR_LATE=true PATH="$RETIRE_BIN:$PATH" do_install "$RSRC" "$FTGT" || INSTALL_RC=$?
+        assert_eq "failed marker restore makes reinstall exit 1" "1" "$INSTALL_RC"
+    fi
+    rm -f "$RETIRE_BLOCKED_DIR/.late"
+    assert_eq "$writer retained the exact pending target" '.agents/skills/repo-remote' "$(cat "$pending/target" 2>/dev/null)"
+    if [[ -f "$pending/SKILL.md" ]]; then
+        assert_eq "$writer retained the exact pending marker" "$MARKER_BEFORE" "$(cksum <"$pending/SKILL.md")"
+    else
+        no "$writer retained the exact pending marker"
+    fi
+    if [[ "$writer" == resync ]]; then
+        run_resync "$FTGT"
+        assert_eq "resync explicitly fails while recovery is pending" "1" "$RS_RC"
+        assert_contains "resync identifies the pending retirement" "$RS_OUT" 'Pending retirement for .agents/skills/repo-remote'
+    else
+        INSTALL_RC=0
+        INSTALL_OUT="$(cd "$FTGT" && HOME="$FAKE_HOME" bash "$RSRC/install.sh" -y "$FTGT" 2>&1)" || INSTALL_RC=$?
+        assert_eq "reinstall explicitly fails while recovery is pending" "1" "$INSTALL_RC"
+        assert_contains "reinstall identifies the pending retirement" "$INSTALL_OUT" 'Pending retirement for .agents/skills/repo-remote'
+    fi
+    assert_file "$writer leaves the pending marker available for recovery" "$pending/SKILL.md"
+done
+
+# The #676 Codex migrations also see these paths. Their directory cleanup
+# must preserve the two repo-owned files while still migrating a sibling.
+PTGT="$SCRATCH/ret-codex-pins"; new_target "$PTGT"
+do_install "$RSRC" "$PTGT"
+PIN_REF=.agents/skills/repo/references/remote.md
+PIN_SKILL=.agents/skills/repo-remote/SKILL.md
+SIBLING=.agents/skills/repo/references/tidy.md
+for writer in resync reinstall; do
+    seed_retired "$PTGT"
+    echo legacy >"$PTGT/$SIBLING"
+    printf '%s\n' "$PIN_REF" "$PIN_SKILL" >"$PTGT/.claude/skills/repo/resync-ignore"
+    if [[ "$writer" == resync ]]; then
+        run_resync "$PTGT" --dry-run
+        assert_eq "Codex pins: dry-run sees unpinned retirement drift" "2" "$RS_RC"
+        assert_file "Codex pins: dry-run preserves pinned reference" "$PTGT/$PIN_REF"
+        assert_file "Codex pins: dry-run preserves pinned skill" "$PTGT/$PIN_SKILL"
+        assert_file "Codex pins: dry-run preserves unpinned sibling" "$PTGT/$SIBLING"
+        run_resync "$PTGT"
+        assert_eq "Codex pins: resync exits 0" "0" "$RS_RC"
+        assert_contains "Codex pins: resync reports both pins" "$RS_OUT" "2 pinned"
+    else
+        do_install "$RSRC" "$PTGT"
+    fi
+    assert_file "$writer preserves pinned retired Codex reference" "$PTGT/$PIN_REF"
+    assert_file "$writer preserves pinned retired Codex skill" "$PTGT/$PIN_SKILL"
+    if [[ -e "$PTGT/$SIBLING" ]]; then
+        no "$writer still migrates the unpinned legacy reference"
+    else
+        ok "$writer still migrates the unpinned legacy reference"
+    fi
+done
+
+# --dev install: a retired symlink goes, the file it points at stays.
+DSRC="$SCRATCH/dev-src"; DTGT="$SCRATCH/dev-tgt"
+new_source "$DSRC"; new_target "$DTGT"
+do_install "$DSRC" "$DTGT" --dev
+ln -sf "$DSRC/VERSION" "$DTGT/.claude/commands/repo/remote.md"
+run_resync "$DTGT"
+if [[ -e "$DTGT/.claude/commands/repo/remote.md" || -L "$DTGT/.claude/commands/repo/remote.md" ]]; then
+    no "dev install: retired symlink removed"; else ok "dev install: retired symlink removed"; fi
+assert_file "dev install: the symlink target in the source clone is untouched" "$DSRC/VERSION"
 
 # ---------------------------------------------------------------------------
 echo ""

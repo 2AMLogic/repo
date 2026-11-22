@@ -15,8 +15,11 @@
 # any harness executes, so nothing in this repo could catch a regression in the
 # extraction. But the extraction is a small, self-contained `awk` invocation,
 # independent of the surrounding prose — so it can be run directly against
-# scratch CHANGELOG.md fixtures. extract_release_notes() below is a faithful
-# transcription of release.md Phase 6.
+# scratch CHANGELOG.md fixtures. extract_release_notes() below is lifted
+# VERBATIM out of release.md Phase 6 and executed (repo#858): a hand
+# transcription of it passed all 27 checks while the published snippet was
+# broken by skill-argument substitution, because the transcription never saw
+# the rendering defect. Running the published text closes that gap.
 #
 # THE BUG THIS REPLACES: `\?` (zero-or-one) is a GNU sed extension. On
 # BSD/macOS sed it is not recognized inside a basic-regex address, so
@@ -45,22 +48,44 @@ SCRATCH="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$SCRATCH"' EXIT
 
 # ---------------------------------------------------------------------------
-# The extraction under test — a direct transcription of release.md Phase 6's
-# extract_release_notes() function.
+# The extraction under test — the extract_release_notes() function exactly as
+# release.md Phase 6 ships it. The `sed` below lifts the top-level
+# `extract_release_notes() { … }` block out of the published Markdown into a
+# scratch file, which is then sourced: the suite asserts on (and runs) the
+# published bytes, never a re-typed copy of them (repo#858).
 # ---------------------------------------------------------------------------
+PUBLISHED_EXTRACTOR="$SCRATCH/published-extract-release-notes.sh"
+sed -n '/^extract_release_notes() {/,/^}$/p' "$RELEASE_MD" > "$PUBLISHED_EXTRACTOR"
 
-# extract_release_notes <changelog-file> <version> -> matching CHANGELOG range on stdout
-extract_release_notes() {
-    local changelog="$1" v="$2"
-    awk -v v="$v" '
-      $0 ~ "^##[[:space:]]+v?\\[?" v "([[:space:]]|\\]|$)" {f=1; next}
-      /^##[[:space:]]/ {f=0}
-      f' "$changelog"
+# The published function takes the version as its first argument and reads
+# CHANGELOG.md from its working directory, so run it inside a scratch copy of
+# each fixture.
+# run_extractor <changelog-file> <version> -> matching CHANGELOG range on stdout
+run_extractor() {
+    local changelog="$1" v="$2" rundir
+    rundir="$(mktemp -d "$SCRATCH/run.XXXXXX")"
+    cp "$changelog" "$rundir/CHANGELOG.md"
+    ( cd "$rundir" && extract_release_notes "$v" )
 }
+
+# shellcheck disable=SC1090  # lifted from release.md at run time (repo#858)
+source "$PUBLISHED_EXTRACTOR"
 
 echo "release.md Phase 6 notes-extraction test suite"
 echo "==============================================="
 echo ""
+
+# ---------------------------------------------------------------------------
+echo "-- case 0: the published extractor was lifted intact --"
+# ---------------------------------------------------------------------------
+# If release.md is ever restructured so the sed above captures nothing, every
+# later case would run an unset function; fail here, loudly, instead.
+LIFTED="$(cat "$PUBLISHED_EXTRACTOR")"
+assert_contains "lifted block defines extract_release_notes()" \
+    "$LIFTED" 'extract_release_notes() {'
+assert_contains "lifted block is the awk implementation" \
+    "$LIFTED" 'awk -v v='
+assert_matches "lifted block closes the function at column 0" "$LIFTED" '^}$'
 
 # ---------------------------------------------------------------------------
 echo "-- case 1: bracket-less header shape --"
@@ -79,7 +104,7 @@ cat > "$CHANGELOG" <<'EOF'
 - Initial cut.
 EOF
 
-OUT="$(extract_release_notes "$CHANGELOG" "0.4.1")"
+OUT="$(run_extractor "$CHANGELOG" "0.4.1")"
 assert_contains "bracket-less header: extracts the version's own body" "$OUT" "Fixed a bug."
 assert_contains "bracket-less header: extracts multiple body lines" "$OUT" "Added a feature."
 assert_not_contains "bracket-less header: stops before the next version's body" "$OUT" "Initial cut."
@@ -107,7 +132,7 @@ cat > "$CHANGELOG" <<'EOF'
 - Initial cut.
 EOF
 
-OUT="$(extract_release_notes "$CHANGELOG" "0.4.1")"
+OUT="$(run_extractor "$CHANGELOG" "0.4.1")"
 assert_contains "bracketed header: extracts the version's own body" "$OUT" "Fixed a bug."
 assert_contains "bracketed header: extracts multiple body lines" "$OUT" "Added a feature."
 assert_not_contains "bracketed header: stops before the next version's body" "$OUT" "Initial cut."
@@ -130,7 +155,7 @@ cat > "$CHANGELOG" <<'EOF'
 - Initial cut.
 EOF
 
-OUT="$(extract_release_notes "$CHANGELOG" "0.4.1")"
+OUT="$(run_extractor "$CHANGELOG" "0.4.1")"
 assert_contains "v-prefixed header: extracts the version's own body" "$OUT" "Fixed a bug with a leading v."
 assert_not_contains "v-prefixed header: stops before the next version's body" "$OUT" "Initial cut."
 
@@ -158,12 +183,12 @@ cat > "$CHANGELOG" <<'EOF'
 - Initial cut.
 EOF
 
-OUT_4_1="$(extract_release_notes "$CHANGELOG" "0.4.1")"
+OUT_4_1="$(run_extractor "$CHANGELOG" "0.4.1")"
 assert_contains "0.4.1 extraction: gets its own body" "$OUT_4_1" "The first patch."
 assert_not_contains "0.4.1 extraction: does not include 0.4.10's body" "$OUT_4_1" "The tenth patch."
 assert_not_contains "0.4.1 extraction: does not include 0.4.0's body" "$OUT_4_1" "Initial cut."
 
-OUT_4_10="$(extract_release_notes "$CHANGELOG" "0.4.10")"
+OUT_4_10="$(run_extractor "$CHANGELOG" "0.4.10")"
 assert_contains "0.4.10 extraction: gets its own body" "$OUT_4_10" "The tenth patch."
 assert_not_contains "0.4.10 extraction: does not swallow 0.4.1's body" "$OUT_4_10" "The first patch."
 
@@ -180,7 +205,7 @@ cat > "$CHANGELOG" <<'EOF'
 - Initial cut.
 EOF
 
-OUT="$(extract_release_notes "$CHANGELOG" "9.9.9")"
+OUT="$(run_extractor "$CHANGELOG" "9.9.9")"
 assert_eq "absent version header: extraction is empty" "" "$OUT"
 
 # ---------------------------------------------------------------------------
@@ -191,7 +216,7 @@ echo "-- case 6: empty-output guard aborts before gh release create --"
 # then `[ -s "$NOTES_FILE" ]` must fail (empty file) and the caller must never
 # reach `gh release create`.
 NOTES_FILE="$SCRATCH/notes-empty.txt"
-extract_release_notes "$CHANGELOG" "9.9.9" > "$NOTES_FILE"
+run_extractor "$CHANGELOG" "9.9.9" > "$NOTES_FILE"
 
 GH_RELEASE_CREATE_CALLED=0
 if [ ! -s "$NOTES_FILE" ]; then
@@ -216,7 +241,7 @@ cat > "$CHANGELOG" <<'EOF'
 - Something shipped.
 EOF
 NOTES_FILE="$SCRATCH/notes-nonempty.txt"
-extract_release_notes "$CHANGELOG" "0.5.0" > "$NOTES_FILE"
+run_extractor "$CHANGELOG" "0.5.0" > "$NOTES_FILE"
 if [ ! -s "$NOTES_FILE" ]; then
     GUARD_ABORTED=1
 else
@@ -235,7 +260,11 @@ assert_not_contains "release.md Phase 6 no longer uses the GNU-only sed '\\?' id
 assert_contains "release.md defines the shared extract_release_notes() function" \
     "$MD" 'extract_release_notes() {   # <version> -> writes matching CHANGELOG range to stdout'
 assert_contains "release.md's awk pattern matches optional v-prefix and bracket" \
-    "$MD" '$0 ~ "^##[[:space:]]+v?\\[?" v "([[:space:]]|\\]|$)" {f=1; next}'
+    "$MD" '$(0) ~ "^##[[:space:]]+v?\\[?" v "([[:space:]]|\\]|$)" {f=1; next}'
+assert_contains "release.md passes the version via the braced positional spelling" \
+    "$MD" 'awk -v v="${1}"'
+assert_contains "release.md Usage states the command takes no arguments" \
+    "$MD" 'takes **no arguments**'
 assert_contains "release.md extracts into a NOTES_FILE once" \
     "$MD" 'NOTES_FILE="$(mktemp)"'
 assert_contains "release.md guards against an empty extraction before gh release create" \

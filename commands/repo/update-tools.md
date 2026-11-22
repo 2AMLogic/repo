@@ -862,7 +862,7 @@ Land each tool's bump as its own commit:
    # Net line delta per changed file (added - removed), most-negative first —
    # a resync that dropped a local patch shows up as a large negative number:
    git -C <this-repo> diff --numstat --cached -- $(cat /tmp/update-tools-changed.txt) \
-     | awk '{printf "%+d\t%s\n", $1 - $2, $3}' | sort -n
+     | awk '{printf "%+d\t%s\n", $(1) - $(2), $(3)}' | sort -n
    ```
 
    **Any file from step 4's `LOCAL MODIFICATIONS` set whose net delta is

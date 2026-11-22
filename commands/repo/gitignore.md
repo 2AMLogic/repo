@@ -203,11 +203,11 @@ S=$(mktemp -d)
 # removal that really did un-ignore it.
 ipaths() {
   git -c core.excludesFile=/dev/null \
-    ls-files --others --ignored --exclude-standard -z -- "$1" \
+    ls-files --others --ignored --exclude-standard -z -- "${1}" \
     | tr '\0' '\n' | sed '/^$/d' | sort
 }
 # Which rule covers each path, in `<file>:<line>:<pattern>\t<path>` form.
-attrib() { ipaths "$1" | git -c core.excludesFile=/dev/null check-ignore -v --stdin; }
+attrib() { ipaths "${1}" | git -c core.excludesFile=/dev/null check-ignore -v --stdin; }
 
 ipaths proofs/ > "$S/paths.before"
 attrib proofs/ > "$S/attrib.before"

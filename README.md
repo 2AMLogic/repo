@@ -18,7 +18,6 @@ Repo is a collection of skills for keeping any git repository healthy and produc
 | `/repo:handoff` | Roll the session safely — file follow-ups, reset, check for a CLI update, write a handoff note the next session reads first |
 | `/repo:tidy` | Tidy up — build artifacts, caches, temp files, empty dirs |
 | `/repo:release` | Cut a release — pre-flight checks, semver decision, CHANGELOG, version bump, tag, GitHub Release. Supports per-project release policy via named phase-boundary seams in `.repo/release-policy.md` |
-| `/repo:remote` | Launch a cloud dev session (GCP or AWS) with the repo ready to go, then open an SSH session (provenance design: [`docs/remote-exec-provenance.md`](docs/remote-exec-provenance.md)) |
 | `/repo:browser` | Check the environment's browser-automation stack (Browser Use CLI, official agent skill, auth, cloud credits) and offer confirm-gated installs; report-first, provisions only |
 | `/repo:sudo` | Opt-in passwordless-sudo setup for a dev machine — install a `visudo`-validated `/etc/sudoers.d` drop-in (blanket `ALL` or a scoped command list) so an agent over SSH isn't blocked on password prompts; always confirmed, validated with rollback on failure |
 | `/repo:host-optimize` | Prepare a Mac (or Linux box) for heavy Loom/agent build use — audit Gatekeeper churn, backup-agent interference, build-tree bloat; apply safe fixes, gate consequential ones |
@@ -240,7 +239,6 @@ The installer is designed to coexist with whatever already lives in the consumer
 - `.claude/skills/repo/` — the domain skill file plus install metadata
 - `.claude/skills/repo/hooks/guard-destructive.sh` — the PreToolUse guard hook (colocated under the skill dir; removed with it on uninstall). **Conditional**: skipped entirely when another destructive-command guard is already wired in `.claude/settings.json` (e.g. an existing Loom install) — the same coexistence check the `.claude/settings.json` bullet below describes decides both whether to wire the hook *and* whether to even copy the script, so a deferred install never ships a copy of the ~12,600-line script nothing would run. The decision is recorded in `install-metadata.json`'s `guardHookInstalled` field so `resync-installed.sh` keeps respecting it on every later refresh. Also skipped (along with its `settings.json` entry) under an explicit `--no-guard` opt-out, persisted as `guardHook: "disabled"` — see "Opting out of the guard" above
 - `.claude/skills/repo/hooks/session-start-handoff.sh` — the SessionStart handoff-note hook (same colocation, same uninstall behavior)
-- `.claude/skills/repo/scripts/repo-remote.sh` — the headless provisioning entry point for `/repo:remote` (the interactive skill delegates to it; a caller such as loom's `fleet add-worker` invokes it directly). Same colocation, removed with the skill dir on uninstall
 - `.claude/skills/repo/scripts/resync-installed.sh` — the consumer-side resync (see "Updating an existing install" above). Same colocation, removed with the skill dir on uninstall
 - `.claude/skills/repo/scripts/repo-scrub-forks.sh` — the `/repo:scrub --forks` fork-network sweep. Same colocation, removed with the skill dir on uninstall
 - `.claude/skills/repo/scripts/repo-optimize-ci.py` — the `/repo:optimize-ci` workflow audit (read-only GitHub calls). Same colocation, removed with the skill dir on uninstall
@@ -266,7 +264,6 @@ skills/repo/SKILL.md         Domain overview installed to .claude/skills/repo/ (
                              with Codex-native frontmatter, to .agents/skills/repo/ (Codex CLI)
 commands/repo/*.md           Command files installed to .claude/commands/repo/ and, unchanged,
                              to .agents/skills/repo-<verb>/
-scripts/repo/repo-remote.sh  Headless /repo:remote provisioning entry point, installed to .claude/skills/repo/scripts/
 scripts/repo/resync-installed.sh  Consumer-side resync (contract C7), installed to .claude/skills/repo/scripts/
 scripts/repo/repo-scrub-forks.sh  /repo:scrub fork-network sweep, installed to the same place
 scripts/repo/repo-optimize-ci.py  /repo:optimize-ci workflow audit, installed to the same place
@@ -281,8 +278,8 @@ hooks/repo/tests/test-*.sh   Hook suites — guard regression, handoff hook, CLA
                              markers, sidecar untracking, Codex skill surface,
                              claude + codex shell wrappers, Claude/Codex skill parity,
                              install guard coexistence
-commands/repo/tests/test-*.sh  Command-contract suites — branches loss check, repo-remote
-                             provisioning, verify-after-write, early sync-and-switch, tidy
+commands/repo/tests/test-*.sh  Command-contract suites — branches loss check,
+                             verify-after-write, early sync-and-switch, tidy
                              KEEP tiers, C7 resync, C10 repo-owned pins, installer contract,
                              fork-network sweep,
                              scrub/all/prune contract, links precision, guard equivalence
@@ -292,7 +289,7 @@ commands/repo/tests/test-*.sh  Command-contract suites — branches loss check, 
                              WORK_LOG.md docs-PR self-loop contract,
                              followups pre-filing scrub step, /repo:all orphan-stage
                              ownership, CHANGELOG merged-work and version-citation
-                             checks, label-description lint, json_escape parity,
+                             checks, label-description lint,
                              version.sh, the installed-surface VERSION-bump gate, and
                              per-command contracts (deps, followups, handoff, tidy,
                              update-tools, release notes, gitignore, fixtures). The
@@ -317,6 +314,8 @@ lib/resync-ignore.sh         C10 repo-owned pins: the one reader of .claude/skil
                              install.sh and resync-installed.sh so a pin cannot be honored by one writer and undone
                              by the other; also read by uninstall.sh, which still removes pinned paths but names
                              them in the pre-removal preview first
+lib/retired-files.sh         Paths shipped by earlier versions. Install and resync remove them by name,
+                             honoring repo-owned pins
 scripts/version.sh           Single source of truth for VERSION (`print|check|bump <level>|set <x.y.z>`, both accepting
                              `--tag`/`--no-commit`; bump/set stage without committing mid merge/rebase/cherry-pick),
                              used by /repo:release and CI
