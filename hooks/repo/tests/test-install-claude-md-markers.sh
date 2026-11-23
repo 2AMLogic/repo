@@ -575,6 +575,58 @@ assert_eq "mode: no temporary file is left next to the target" "" "$LEFT"
 
 # ---------------------------------------------------------------------------
 echo ""
+echo "-- claude_md_block_rewrite: legacy Repo Skills link in the block body (#870) --"
+
+# A pre-move consumer script renders the replacement block with the old owner
+# in its Repo Skills link; the library rewrites that link to the current owner
+# inside the markers only. The substitution's pattern opens with `[`, so its
+# quoting is load-bearing: unquoted, bash reads it as a bracket expression and
+# silently matches nothing. This fixture lives here (not only in the Linux-only
+# resync suite) because this suite runs on the macOS bash-3.2 CI job, which is
+# the measurement that the quoting holds on 3.2.
+#
+# The legacy owner is assembled from parts, as the library does, so the
+# stale-owner-slug guard does not flag this test.
+LEGACY_OWNER="rj""walters"
+LEGACY_LINK="[Repo Skills](https://github.com/${LEGACY_OWNER}/repo)"
+CURRENT_LINK="[Repo Skills](https://github.com/2AMLogic/repo)"
+
+TLG="$(new_target legacy-link)"
+LEGACY_BLOCK="$SCRATCH/legacy-block.md"
+printf '<!-- BEGIN REPO-SKILLS -->\nInstalled by %s v0.0.0.\n<!-- END REPO-SKILLS -->\n' \
+    "$LEGACY_LINK" > "$LEGACY_BLOCK"
+printf 'Intro naming %s historically.\n\n<!-- BEGIN REPO-SKILLS -->\nOLD body\n<!-- END REPO-SKILLS -->\n\nOutro.\n' \
+    "$LEGACY_LINK" > "$TLG/CLAUDE.md"
+RLG="$(lib_rewrite "$TLG/CLAUDE.md" "$LEGACY_BLOCK")"
+assert_eq "legacy link: rewrite succeeds" "0|" "$RLG"
+BODYLG="$(slurp "$TLG/CLAUDE.md")"
+BLOCKLG="$(tail_from "$TLG/CLAUDE.md" "<!-- BEGIN REPO-SKILLS -->")"
+BLOCKLG="${BLOCKLG%%"<!-- END REPO-SKILLS -->"*}"
+OUTSIDELG="${BODYLG%%"<!-- BEGIN REPO-SKILLS -->"*}"
+assert_contains     "legacy link: block carries the current link" "$BLOCKLG" "Installed by $CURRENT_LINK v0.0.0."
+assert_not_contains "legacy link: no legacy link left inside the markers" "$BLOCKLG" "$LEGACY_LINK"
+assert_not_contains "legacy link: stale block body is gone" "$BODYLG" "OLD body"
+assert_contains     "legacy link: legacy link outside the markers is verbatim" \
+    "$OUTSIDELG" "Intro naming $LEGACY_LINK historically."
+assert_contains     "legacy link: content after the block survives" "$BODYLG" "Outro."
+
+# Idempotent: a block already carrying the current link is written unchanged,
+# and a second pass leaves the file byte-identical.
+CURRENT_BLOCK="$SCRATCH/current-block.md"
+printf '<!-- BEGIN REPO-SKILLS -->\nInstalled by %s v0.0.0.\n<!-- END REPO-SKILLS -->\n' \
+    "$CURRENT_LINK" > "$CURRENT_BLOCK"
+RLG2="$(lib_rewrite "$TLG/CLAUDE.md" "$CURRENT_BLOCK")"
+assert_eq "legacy link: rewrite with the current link succeeds" "0|" "$RLG2"
+assert_eq "legacy link: current-link block matches the corrected legacy one" \
+    "$BODYLG" "$(slurp "$TLG/CLAUDE.md")"
+cp "$TLG/CLAUDE.md" "$SCRATCH/legacy-link-before.md"
+RLG3="$(lib_rewrite "$TLG/CLAUDE.md" "$CURRENT_BLOCK")"
+assert_eq    "legacy link: second current-link pass succeeds" "0|" "$RLG3"
+assert_bytes "legacy link: second pass is byte-identical" \
+    "$TLG/CLAUDE.md" "$SCRATCH/legacy-link-before.md"
+
+# ---------------------------------------------------------------------------
+echo ""
 echo "========================================="
 echo "  Total:  $TOTAL"
 printf "  ${GREEN}Passed${NC}: %s\n" "$PASS"
