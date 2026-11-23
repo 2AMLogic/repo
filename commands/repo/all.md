@@ -17,9 +17,9 @@ umbrella command
 commands in a deliberate order, applying each one's safe fixes by default and
 keeping the same safety gates on destructive steps that each uses on its own.
 
-It deliberately does **not** launch cloud dev sessions ([[remote]]) — that
-provisions paid infrastructure and is never part of a routine hygiene pass. And
-it only ever runs [[deps]]' read-only half (`--check`): configuring dependency automation
+It deliberately does **not** run the environment-provisioning commands
+([[browser]], [[sudo]], [[host-optimize]]) — those change the machine, not the
+repo, and are never part of a routine hygiene pass. And it only ever runs [[deps]]' read-only half (`--check`): configuring dependency automation
 config, flipping repository flags, and merging bot PRs all stay behind
 `/repo:deps`' own confirmations.
 
@@ -401,7 +401,7 @@ Tidy:         freed 240 MB (build/, .cache/, 3 empty dirs)
 Tools:        Anvil updated 1.4.0 → 1.5.1; Loom current
 Deps:         Dependabot, org policy current, alerts ON, 2 open alerts (1 high, 1 medium — 1 with no open fix PR), security PRs: Dependabot, cooldown 14d, automerge OFF, 3 open PRs (0 majors, 2 stale)
 Reset:        on main (up to date), tree clean, 4 branches deleted, 1 stash kept
-Skipped:      remote (never part of /repo:all); deps install/review (confirm-first — run /repo:deps); scrub --deep/--owner/--forks (run /repo:scrub)
+Skipped:      browser/sudo/host-optimize (never part of /repo:all); deps install/review (confirm-first — run /repo:deps); scrub --deep/--owner/--forks (run /repo:scrub)
 ```
 
 List anything intentionally left behind — deferred findings, tracked orphans

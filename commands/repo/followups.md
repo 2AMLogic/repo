@@ -18,8 +18,8 @@ Unlike every other `/repo:*` command, which scans repo / git / filesystem
 state, this one mines the **conversation**: the deferred work and discovered
 bugs that only exist in the session's context. Filing is outward-facing — for
 upstream targets it writes into *other people's* repos, usually public ones —
-so this command is in the same "always confirm first" class as `release`,
-`remote`, and `update-tools`, never the auto-apply behavior of the hygiene
+so this command is in the same "always confirm first" class as `release`
+and `update-tools`, never the auto-apply behavior of the hygiene
 commands. **Confirmation is the default and only mode; there is no `--ask` flag
 because there is nothing to opt into.**
 

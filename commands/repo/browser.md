@@ -20,7 +20,7 @@ execution, URL policy, and what may enter a browser session belong to the
 adopting org's browser-automation policy (wherever that org keeps it),
 not to this command.
 
-Shaped like [[remote]] and [[sudo]]: the report is read-only and safe to run
+Shaped like [[sudo]]: the report is read-only and safe to run
 anywhere; every install is an environment change and is confirmed before it
 runs.
 
@@ -33,7 +33,7 @@ runs.
 
 ## Scope — and the neighboring commands it is not
 
-This is environment provisioning, the `remote`/`sudo`/`host-optimize` family.
+This is environment provisioning, the `sudo`/`host-optimize` family.
 It is deliberately **not** [[update-tools]] business: that command scopes
 itself to *installer-managed tool packages with a local source clone to diff
 against* and routes pip/uv tools to [[deps]] — a globally installed uv CLI
