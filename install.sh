@@ -35,7 +35,7 @@
 #
 # Examples:
 #   ./install.sh ~/projects/my-app
-#   ./install.sh --skills=clean,remote .
+#   ./install.sh --skills=reset,tidy .
 #   ./install.sh --dry-run ~/projects/my-app
 #   ./install.sh --dev .            # dogfood: live /repo:* here via symlinks
 #   ./install.sh -y --no-guard ~/projects/my-app   # install without the destructive guard (persisted)
