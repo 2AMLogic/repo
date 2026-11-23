@@ -750,6 +750,23 @@ assert_eq "text outside the markers survives byte-for-byte (historical links kep
 ( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" --dry-run >/dev/null 2>&1 ); L_RC=$?
 assert_eq "the next dry-run on the fixture exits 0" "0" "$L_RC"
 
+# A real pre-#765 install also carries the /repo:remote payload. Its updater
+# skips those files on the first apply (their source counterpart is gone) and
+# cannot be changed after the fact, so the retirement is offered by the NEXT
+# run. Model that leftover and require the dry-run to offer ONLY the retirement:
+# no link, skill, command or managed-block work (#859 review).
+mkdir -p "$LTGT2/.claude/commands/repo" "$LTGT2/.claude/skills/repo/scripts"
+echo "legacy" >"$LTGT2/.claude/skills/repo/scripts/repo-remote.sh"
+echo "legacy" >"$LTGT2/.claude/commands/repo/remote.md"
+L_OUT="$( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" --dry-run 2>&1 )"; L_RC=$?
+assert_eq "next dry-run with the retired payload still present exits 2 (pending retirement)" "2" "$L_RC"
+assert_contains "dry-run offers to drop the retired script" "$L_OUT" "repo-remote.sh"
+assert_not_contains "dry-run offers no content sync (link or block)" "$L_OUT" "would sync"
+assert_not_contains "dry-run offers no CLAUDE.md change" "$L_OUT" "would sync CLAUDE.md"
+( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" >/dev/null 2>&1 )
+( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" --dry-run >/dev/null 2>&1 ); L_RC=$?
+assert_eq "once the retirement has run, the dry-run exits 0" "0" "$L_RC"
+
 ( cd "$LNOBLOCK" && HOME="$FAKE_HOME" bash "$LNOBLOCK/$INSTALLED_RESYNC" >/dev/null 2>&1 ); L_RC=$?
 assert_eq "update of a consumer without the block exits 0" "0" "$L_RC"
 assert_eq "a consumer without the block keeps it absent, CLAUDE.md untouched" \
