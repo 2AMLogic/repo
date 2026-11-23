@@ -685,6 +685,94 @@ assert_eq "primary without a sidecar still errors" "1" "$RS_RC"
 assert_contains "error mentions the primary-checkout lookup" "$RS_OUT" "primary checkout"
 
 # ---------------------------------------------------------------------------
+# #859: the first update from a pre-owner-move install. That install's own
+# resync script renders the CLAUDE.md block with the old owner, then loads
+# lib/claude-md-block.sh from the updated source on the same run — so the
+# shared rewrite path has to correct the link, or it takes a second update.
+# This must run the INSTALLED script, not the source one run_resync uses.
+# The old slug is assembled from parts: this suite is scanned by
+# test-no-stale-owner-slug.sh like every other shipped file.
+echo ""
+echo "-- first update from a pre-owner-move install refreshes the CLAUDE.md link (#859) --"
+OLD_SLUG="rjwalters""/repo"; NEW_SLUG="2AMLogic/repo"
+OLD_LINK="[Repo Skills](https://github.com/${OLD_SLUG})"
+NEW_LINK="[Repo Skills](https://github.com/${NEW_SLUG})"
+LSRC="$SCRATCH/legacy-src"; LTGT2="$SCRATCH/legacy-tgt"; LNOBLOCK="$SCRATCH/legacy-noblock"
+new_source "$LSRC"
+LEGACY_FILES=(install.sh scripts/repo/resync-installed.sh skills/repo/SKILL.md commands/repo/followups.md)
+for f in "${LEGACY_FILES[@]}"; do
+    sed "s,${NEW_SLUG},${OLD_SLUG},g" "$REPO_ROOT/$f" >"$LSRC/$f"
+done
+chmod +x "$LSRC/install.sh" "$LSRC/scripts/repo/resync-installed.sh"
+git -C "$LSRC" add -A >/dev/null 2>&1
+git -C "$LSRC" -c user.email=t@example.com -c user.name=Test commit -qm "legacy owner" >/dev/null 2>&1
+
+new_target "$LTGT2"
+do_install "$LSRC" "$LTGT2"
+new_target "$LNOBLOCK"
+do_install "$LSRC" "$LNOBLOCK"
+assert_contains "the legacy fixture really installs the old owner into the block" \
+    "$(cat "$LTGT2/CLAUDE.md")" "$OLD_LINK"
+
+# Consumer-authored text outside the markers, with a historical old-owner link
+# before and after the block; and a consumer with no block at all.
+HIST="See $OLD_LINK for history."
+{ echo "$HIST"; echo; cat "$LTGT2/CLAUDE.md"; echo; echo "Footer: https://github.com/${OLD_SLUG}/issues/1"; } >"$LTGT2/CLAUDE.md.new"
+mv "$LTGT2/CLAUDE.md.new" "$LTGT2/CLAUDE.md"
+sed '/BEGIN REPO-SKILLS/,/END REPO-SKILLS/d' "$LNOBLOCK/CLAUDE.md" >"$LNOBLOCK/CLAUDE.md.new"
+mv "$LNOBLOCK/CLAUDE.md.new" "$LNOBLOCK/CLAUDE.md"
+echo "$HIST" >>"$LNOBLOCK/CLAUDE.md"
+
+outside_block() { sed '/BEGIN REPO-SKILLS/,/END REPO-SKILLS/d' "$1"; }
+OUTSIDE_BEFORE="$(outside_block "$LTGT2/CLAUDE.md")"
+NOBLOCK_BEFORE="$(cat "$LNOBLOCK/CLAUDE.md")"
+
+# Advance the source to the current owner (what the move released).
+for f in "${LEGACY_FILES[@]}"; do cp "$REPO_ROOT/$f" "$LSRC/$f"; done
+git -C "$LSRC" add -A >/dev/null 2>&1
+git -C "$LSRC" -c user.email=t@example.com -c user.name=Test commit -qm "current owner" >/dev/null 2>&1
+
+INSTALLED_RESYNC=".claude/skills/repo/scripts/resync-installed.sh"
+( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" >/dev/null 2>&1 ); L_RC=$?
+assert_eq "one installed-script update from the legacy install exits 0" "0" "$L_RC"
+assert_contains "the managed block now names the current owner" "$(cat "$LTGT2/CLAUDE.md")" "$NEW_LINK"
+assert_not_contains "the managed block no longer links the old owner" \
+    "$(sed -n '/BEGIN REPO-SKILLS/,/END REPO-SKILLS/p' "$LTGT2/CLAUDE.md")" "$OLD_SLUG"
+# (the skill legitimately keeps ${OLD_SLUG}#NN issue references; the contract link is the owner link)
+assert_contains "the installed skill's contract link names the current owner" \
+    "$(cat "$LTGT2/.claude/skills/repo/SKILL.md")" "https://github.com/${NEW_SLUG}/blob/main/INSTALLER-CONTRACT.md"
+assert_not_contains "the installed skill's contract link no longer names the old owner" \
+    "$(cat "$LTGT2/.claude/skills/repo/SKILL.md")" "https://github.com/${OLD_SLUG}/blob/"
+assert_not_contains "the installed command fallback no longer names the old owner" \
+    "$(cat "$LTGT2/.claude/commands/repo/followups.md")" "$OLD_SLUG"
+assert_eq "text outside the markers survives byte-for-byte (historical links kept)" \
+    "$OUTSIDE_BEFORE" "$(outside_block "$LTGT2/CLAUDE.md")"
+( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" --dry-run >/dev/null 2>&1 ); L_RC=$?
+assert_eq "the next dry-run on the fixture exits 0" "0" "$L_RC"
+
+# A real pre-#765 install also carries the /repo:remote payload. Its updater
+# skips those files on the first apply (their source counterpart is gone) and
+# cannot be changed after the fact, so the retirement is offered by the NEXT
+# run. Model that leftover and require the dry-run to offer ONLY the retirement:
+# no link, skill, command or managed-block work (#859 review).
+mkdir -p "$LTGT2/.claude/commands/repo" "$LTGT2/.claude/skills/repo/scripts"
+echo "legacy" >"$LTGT2/.claude/skills/repo/scripts/repo-remote.sh"
+echo "legacy" >"$LTGT2/.claude/commands/repo/remote.md"
+L_OUT="$( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" --dry-run 2>&1 )"; L_RC=$?
+assert_eq "next dry-run with the retired payload still present exits 2 (pending retirement)" "2" "$L_RC"
+assert_contains "dry-run offers to drop the retired script" "$L_OUT" "repo-remote.sh"
+assert_not_contains "dry-run offers no content sync (link or block)" "$L_OUT" "would sync"
+assert_not_contains "dry-run offers no CLAUDE.md change" "$L_OUT" "would sync CLAUDE.md"
+( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" >/dev/null 2>&1 )
+( cd "$LTGT2" && HOME="$FAKE_HOME" bash "$LTGT2/$INSTALLED_RESYNC" --dry-run >/dev/null 2>&1 ); L_RC=$?
+assert_eq "once the retirement has run, the dry-run exits 0" "0" "$L_RC"
+
+( cd "$LNOBLOCK" && HOME="$FAKE_HOME" bash "$LNOBLOCK/$INSTALLED_RESYNC" >/dev/null 2>&1 ); L_RC=$?
+assert_eq "update of a consumer without the block exits 0" "0" "$L_RC"
+assert_eq "a consumer without the block keeps it absent, CLAUDE.md untouched" \
+    "$NOBLOCK_BEFORE" "$(cat "$LNOBLOCK/CLAUDE.md")"
+
+# ---------------------------------------------------------------------------
 echo ""
 echo "-- the contract document backs the script --"
 assert_file "INSTALLER-CONTRACT.md exists at the repo root" "$CONTRACT"
