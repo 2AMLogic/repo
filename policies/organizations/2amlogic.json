@@ -3,6 +3,6 @@
     "provider": "dependabot",
     "dependabotSecurityUpdates": true,
     "renovate": null,
-    "policySource": "2AMLogic/fleet-gitops dependency-updates.json, rendered into every client's .github/dependabot.yml by 2AMLogic/2am scripts/dependabot-render.py (runbook: 2AMLogic/2am infra/dependabot/README.md; 2AMLogic/2am#4351)"
+    "policySource": "2AMLogic/.loom dependency-updates.json, rendered into every client's .github/dependabot.yml by 2AMLogic/2am scripts/fleet-dependabot-policy.py (runbook: 2AMLogic/2am infra/dependabot/README.md; 2AMLogic/2am#4351)"
   }
 }
