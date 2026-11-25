@@ -1,6 +1,6 @@
 ---
 name: "browser"
-description: "Check the environment's browser-automation stack (Browser Use CLI, official agent skill, auth, cloud credits) and offer confirm-gated installs; report-first, like remote/sudo"
+description: "Report on the Browser Use CLI, official skills, authentication, and cloud account health. Ask before each local install or upgrade."
 domain: repo
 type: command
 user-invocable: true
