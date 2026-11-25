@@ -2,6 +2,27 @@
 
 Sections moved byte-for-byte from [WORK_LOG.md](../WORK_LOG.md) by `loom-daemon work-docs archive`.
 
+### 2026-09-25
+- **Issue #482** (closed): Guard-hook logs land in a non-ignored path under the tool root, so every consumer must add the same .gitignore rule — ship a self-ignoring logs/ instead
+- **PR #485**: fix(hooks): ship a self-ignoring logs/ so consumers need no .gitignore rule for hook runtime logs
+- **Issue #479** (closed): /repo:deps blames missing admin for an absent security_and_analysis — but it is absent on private org repos with full admin
+- **PR #483**: feat(deps): report security updates as enabled/paused/disabled
+- **Issue #480** (closed): /repo:deps stale-check compares npm PRs against the manifest range, so a caret range marks every real upgrade stale
+- **Issue #469** (closed): repo-org-policy.py: ambiguous absent/inaccessible error, unconstrained preset visibility, no handoff to deps
+- **PR #477**: feat(org-policy): disambiguate an absent target, constrain preset visibility, hand off to deps
+- **Issue #470** (closed): deps: label refusal silently disables Loom bot-PR review routing on Loom-managed repos
+- **PR #476**: docs(deps): report when label refusal leaves bot PRs unrouted on Loom-managed repos
+- **Issue #471** (closed): deps: file a follow-up issue for the deferred Dependabot shutdown instead of only reporting it
+- **PR #475**: feat: offer a durable follow-up issue for the deferred Dependabot shutdown
+- **Issue #467** (closed): org-policy/deps can report success while Renovate is not installed, leaving the org inert
+- **PR #474**: feat: verify Renovate App installation in org-policy and deps reports
+- **Issue #466** (closed): assert_matches() in commands/repo/tests/lib/assert.sh: intermittent false FAIL from SIGPIPE under set -o pipefail
+- **PR #473**: fix: replace printf|grep pipe with here-string in assert_matches() to avoid SIGPIPE races
+- **Issue #468** (closed): deps: no org-wide mode for migrating repos from Dependabot to Renovate
+- **PR #472**: feat(deps): add --all-repos org-wide migration survey mode
+- **Issue #464** (closed): /repo:followups: step 3c only warns even when the source repo's CLAUDE.md forbids outward writes
+- **PR #465**: feat(followups): support source_confidential = "block" firewall mode
+
 ### 2026-09-22
 - **PR #445**: feat: install canonical organization dependency policy from clients
 - **Issue #458** (closed): repo-remote: stale SSH alias + auto-assigned public IPs silently re-point a project at a stranger's instance

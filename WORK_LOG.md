@@ -8,6 +8,15 @@ Chronological record of merged PRs and closed issues, maintained automatically b
 - [2026-08](work_log/WORK_LOG_2026-08.md)
 - [2026-07](work_log/WORK_LOG_2026-07.md)
 
+### 2026-11-23
+
+- **Issue #870** (closed): Cover the #859 legacy-link rewrite on bash 3.2 (macOS)
+- **PR #873**: test: cover the legacy Repo Skills link rewrite under bash 3.2
+- **Issue #871** (closed): Organization policy names a renamed policy source (fleet-gitops → .loom) and a renamed renderer script
+- **PR #872**: fix(policies): point 2amlogic policySource at 2AMLogic/.loom
+- **Issue #859** (closed): Refresh the managed CLAUDE.md link on the first Repo Skills update after the owner move
+- **PR #860**: fix: refresh managed CLAUDE.md link on first update from a pre-move install
+
 ### 2026-11-22
 
 - **Issue #765** (closed): Remove /repo:remote (cloud dev-VM command) from Repo Skills
@@ -407,25 +416,4 @@ Chronological record of merged PRs and closed issues, maintained automatically b
 - **PR #488**: fix(repo-remote): fail closed on SSH ingress — no silent 0.0.0.0/0 fallback, validated override, revoke stale /32s
 - **Issue #481** (closed): /repo:deps has no guidance for sibling supersession or lockfile conflicts between bot PRs
 - **PR #484**: docs(deps): classify sibling supersession and serialize lockfile-bearing merges
-
-### 2026-09-25
-- **Issue #482** (closed): Guard-hook logs land in a non-ignored path under the tool root, so every consumer must add the same .gitignore rule — ship a self-ignoring logs/ instead
-- **PR #485**: fix(hooks): ship a self-ignoring logs/ so consumers need no .gitignore rule for hook runtime logs
-- **Issue #479** (closed): /repo:deps blames missing admin for an absent security_and_analysis — but it is absent on private org repos with full admin
-- **PR #483**: feat(deps): report security updates as enabled/paused/disabled
-- **Issue #480** (closed): /repo:deps stale-check compares npm PRs against the manifest range, so a caret range marks every real upgrade stale
-- **Issue #469** (closed): repo-org-policy.py: ambiguous absent/inaccessible error, unconstrained preset visibility, no handoff to deps
-- **PR #477**: feat(org-policy): disambiguate an absent target, constrain preset visibility, hand off to deps
-- **Issue #470** (closed): deps: label refusal silently disables Loom bot-PR review routing on Loom-managed repos
-- **PR #476**: docs(deps): report when label refusal leaves bot PRs unrouted on Loom-managed repos
-- **Issue #471** (closed): deps: file a follow-up issue for the deferred Dependabot shutdown instead of only reporting it
-- **PR #475**: feat: offer a durable follow-up issue for the deferred Dependabot shutdown
-- **Issue #467** (closed): org-policy/deps can report success while Renovate is not installed, leaving the org inert
-- **PR #474**: feat: verify Renovate App installation in org-policy and deps reports
-- **Issue #466** (closed): assert_matches() in commands/repo/tests/lib/assert.sh: intermittent false FAIL from SIGPIPE under set -o pipefail
-- **PR #473**: fix: replace printf|grep pipe with here-string in assert_matches() to avoid SIGPIPE races
-- **Issue #468** (closed): deps: no org-wide mode for migrating repos from Dependabot to Renovate
-- **PR #472**: feat(deps): add --all-repos org-wide migration survey mode
-- **Issue #464** (closed): /repo:followups: step 3c only warns even when the source repo's CLAUDE.md forbids outward writes
-- **PR #465**: feat(followups): support source_confidential = "block" firewall mode
 
