@@ -3,12 +3,13 @@
 Prioritized roadmap generated from current GitHub label state, maintained automatically by the Guide triage agent. Regenerated whenever label state changes; do not hand-edit the generated region below.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-26T03:16:40Z (snapshot; compare against live labels)_
+_Generated: 2026-11-26T20:37:35Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs carrying `loom:blocked` or `loom:operator`.
 
 - **#770**: fix: cut CHANGELOG version headings on bump and gate on a matching heading
+- **#874**: chore: repo hygiene fixes (2026-11-23)
 
 ## Very Important
 
@@ -68,7 +69,7 @@ _None._
 
 | Bucket | Count |
 |------|-------|
-| Operator merge-risk holds | 1 |
+| Operator merge-risk holds | 2 |
 | Very important | 0 |
 | Important | 1 |
 | Ready (`loom:issue`, net of holds/building/merge-pending) | 0 |
