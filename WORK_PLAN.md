@@ -3,7 +3,7 @@
 Prioritized roadmap generated from current GitHub label state, maintained automatically by the Guide triage agent. Regenerated whenever label state changes; do not hand-edit the generated region below.
 
 <!-- guide:plan-body:start -->
-_Generated: 2026-11-25T21:12:52Z (snapshot; compare against live labels)_
+_Generated: 2026-11-26T03:16:40Z (snapshot; compare against live labels)_
 ## Operator Attention: Merge-Risk-Hold Pileup
 
 Judge-approved PRs carrying `loom:blocked` or `loom:operator`.
@@ -52,6 +52,7 @@ PRs that passed review and are queued for Champion auto-merge (`loom:pr`).
 Issues carrying `loom:curated`.
 
 - **#478**: Live-verify org-policy's absent/inaccessible heuristic against a real organization *(curated)* *(held)*
+- **#565**: repo:remote: support short-lived or brokered GitHub credentials instead of a long-lived PAT on the VM *(curated)* *(held)*
 - **#638**: Repo Skills: make Dependabot (with cooldown) the default provider again; Renovate becomes opt-in (2am#4351) *(curated)* *(held)*
 - **#769**: CHANGELOG has no version headings since 0.16.2; tagged bumps never cut one *(curated)*
 
@@ -74,7 +75,7 @@ _None._
 | In Progress (`loom:building`) | 0 |
 | PRs awaiting review | 0 |
 | Approved PRs awaiting merge | 2 |
-| Curated | 3 |
+| Curated | 4 |
 | Architect / Hermit proposals | 0 |
 | Active epics | 0 |
 <!-- guide:plan-body:end -->
