@@ -24,7 +24,7 @@ local source clone; there is no source clone to diff for Dependabot, and
 package." Keeping them separate keeps `update-tools`' comparison model intact.
 
 Everything here either writes repo config, flips a repository setting, or
-merges a PR — so like `release`, `remote`, `followups`, and `update-tools`,
+merges a PR — so like `release`, `followups`, and `update-tools`,
 this command requires authorization for writes and merges. Apply existing
 authorization when it covers the concrete changes; otherwise show the changes
 and confirm first. `--check` is always report-only.

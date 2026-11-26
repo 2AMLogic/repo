@@ -1,6 +1,6 @@
 ---
 name: "Repo Skills"
-description: "General repository hygiene and environment tools — audits, cleanup, branch/worktree pruning, link checking, and cloud dev sessions"
+description: "General repository hygiene and environment tools — audits, cleanup, branch/worktree pruning, link checking, and browser automation setup"
 domain: repo
 type: skill
 user-invocable: false
@@ -14,9 +14,10 @@ each change; add `--ask` to review findings and confirm first. Anything
 irreversible — deleting a branch, worktree, stash, or untracked file — is never
 automatic: it takes an explicit opt-in and passes a permanent-loss check.
 Commands whose only action is consequential (`orphans`, `update-tools`, `deps`,
-`followups`, `release`, `remote`, `browser`, `sudo`) always confirm first by nature. The environment commands (`remote`, `browser`) stand up
-infrastructure only after showing exactly what they will create and what it
-costs.
+`followups`, `release`, `sudo`) always confirm first by nature.
+`browser` checks the local Browser Use CLI, official skills, and authentication.
+When an API key is available in the environment, it also reads cloud credits
+and concurrency. It asks before each local install or upgrade.
 
 ## Commands
 
@@ -31,7 +32,7 @@ costs.
 | [[tidy]] | Tidy up — build artifacts, caches, temp files, empty dirs |
 | [[release]] | Cut a release — pre-flight, semver decision, CHANGELOG, version bump, tag, GitHub Release. Supports per-project release policy via named phase-boundary seams in `.repo/release-policy.md` |
 | [[host-optimize]] | Prepare a Mac (or Linux box) for heavy Loom/agent build use — audit Gatekeeper churn, backup-agent interference, build-tree bloat; apply safe fixes, gate consequential ones |
-| [[browser]] | Check the environment's browser-automation stack — Browser Use CLI, official agent skill, auth, cloud credit/concurrency health — and offer confirm-gated installs; report-first, provisions only (never drives a browser) |
+| [[browser]] | Check the Browser Use CLI, skills, authentication, and cloud account health, then offer local installs or upgrades with confirmation |
 | [[sudo]] | Opt-in passwordless-sudo setup for a dev machine — install a `visudo`-validated `/etc/sudoers.d` drop-in (blanket `ALL` or a scoped command list) so an agent over SSH isn't blocked on password prompts; always confirmed first, validated with rollback on failure |
 | [[update-tools]] | Check installed tool packages (Loom, Anvil, …) against their sources and offer updates |
 | [[deps]] | Third-party dependency currency — reconcile organization policy, Dependabot-first setup with cooldown (Renovate opt-in), and bot PRs; report-only under `--check` |
@@ -52,7 +53,6 @@ costs.
 - After a large refactor, consolidation, or import (`audit`, `docs`)
 - When the working tree feels messy (`tidy`, `orphans`)
 - When `git branch` output has grown unmanageable (`branches`)
-- When local hardware isn't enough or you need a clean Linux box (`remote`)
 - Before turning a Mac into a heavy Loom/agent build host (`host-optimize`)
 - To unblock an agent driving a dev box over SSH from `sudo` password prompts (`sudo`)
 - Periodically, to keep installed tool packages current (`update-tools`) and
